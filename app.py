@@ -8,21 +8,19 @@ import json
 # 設定網頁為手機優化寬度
 st.set_page_config(page_title="現場備品查扣系統", layout="centered")
 
-# 🌟 隱形連線機制：網址和密碼都藏在官方雲端保險箱裡 🌟
+# 🌟 核心提速與修正：直接解讀單行字串憑證，徹底防範 TOML 格式衝突 🌟
 def init_gspread():
     try:
-        # 從雲端 Secrets 隱形保險箱安全提取 JSON 憑證字串
-        creds_json = st.secrets["gcp_service_account"]
-        creds_dict = json.loads(creds_json)
+        # 從保險箱讀取被壓扁的單行字串
+        creds_string = st.secrets["gcp_service_account_raw"]
+        creds_dict = json.loads(creds_string)
         
         # 使用服務帳戶金鑰連線
         gc = gspread.service_account_from_dict(creds_dict)
-        
-        # 從雲端 Secrets 隱形保險箱提取試算表網址
         spreadsheet_url = st.secrets["spreadsheet_url"]
         return gc.open_by_url(spreadsheet_url)
     except Exception as e:
-        st.error(f"連線授權失敗，請檢查保險箱設定：{e}")
+        st.error(f"連連授權失敗，請檢查保險箱設定：{e}")
         return None
 
 # 高速記憶體快取讀取
@@ -51,7 +49,7 @@ def load_data():
         st.error(f"讀取雲端資料失敗：{e}")
         return pd.DataFrame()
 
-# 背景非同步更新：只更新使用欄位，不破壞您的殘數公式
+# 背景非同步更新
 def bg_update_google(row_num, used_col, new_used):
     try:
         gs_client = init_gspread()
@@ -62,14 +60,13 @@ def bg_update_google(row_num, used_col, new_used):
         print(f"背景同步失敗: {e}")
 
 # --- 網頁介面開始 ---
-st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 備品快速查扣系統 (網路版)</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 備品快速查扣系統 (Python版)</h2>", unsafe_allow_html=True)
 
 df = load_data()
 
 if df.empty:
     st.warning("資料庫載入中，或雲端保險箱 Secrets 設定尚未完成。")
 else:
-    # 建立快捷下拉選單
     col_filter1, col_filter2 = st.columns(2)
     with col_filter1:
         all_locs = ["所有位置"] + [str(x).strip() for x in df["位置"].unique() if str(x).strip()]
@@ -127,8 +124,8 @@ else:
                         new_used = current_used + take_amt
                         
                         new_remain = remain_val - take_amt
-                        df.loc[df['行數'] == row['rowNum'] if 'rowNum' in df else df['行數'] == row['行數'], '使用'] = str(new_used)
-                        df.loc[df['行數'] == row['rowNum'] if 'rowNum' in df else df['行數'] == row['行數'], '殘數'] = str(new_remain)
+                        df.loc[df['行數'] == row['行數'], '使用'] = str(new_used)
+                        df.loc[df['行數'] == row['行數'], '殘數'] = str(new_remain)
                         
                         t = threading.Thread(target=bg_update_google, args=(int(row['行數']), 9, new_used))
                         t.start()
