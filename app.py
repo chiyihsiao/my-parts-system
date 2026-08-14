@@ -3,24 +3,19 @@ import gspread
 import pandas as pd
 import threading
 import time
-import json
 
 # 設定網頁為手機優化寬度
 st.set_page_config(page_title="現場備品查扣系統", layout="centered")
 
-# 🌟 核心提速與修正：直接解讀單行字串憑證，徹底防範 TOML 格式衝突 🌟
+# 🌟 免憑證連線機制：完全不需要大括號亂碼金鑰，只要網址開放編輯就能直連 🌟
 def init_gspread():
     try:
-        # 從保險箱讀取被壓扁的單行字串
-        creds_string = st.secrets["gcp_service_account_raw"]
-        creds_dict = json.loads(creds_string)
-        
-        # 使用服務帳戶金鑰連線
-        gc = gspread.service_account_from_dict(creds_dict)
+        # 使用 gspread 免憑證直接連線公開試算表
+        gc = gspread.public()
         spreadsheet_url = st.secrets["spreadsheet_url"]
         return gc.open_by_url(spreadsheet_url)
     except Exception as e:
-        st.error(f"連連授權失敗，請檢查保險箱設定：{e}")
+        st.error(f"公開試算表連線失敗，請檢查網址或共用權限：{e}")
         return None
 
 # 高速記憶體快取讀取
