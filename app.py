@@ -3,19 +3,24 @@ import gspread
 import pandas as pd
 import threading
 import time
+import json
 
 # 設定網頁為手機優化寬度
 st.set_page_config(page_title="現場備品查扣系統", layout="centered")
 
-# 🌟 免憑證連線機制：完全不需要大括號亂碼金鑰，只要網址開放編輯就能直連 🌟
+# 🌟 雲端專用：強制從美國伺服器保險箱讀取網址與大括號憑證 🌟
 def init_gspread():
     try:
-        # 使用 gspread 免憑證直接連線公開試算表
-        gc = gspread.public()
+        # 從雲端 Secrets 隱形保險箱安全提取 JSON 憑證字串
+        creds_json = st.secrets["gcp_service_account_raw"]
+        creds_dict = json.loads(creds_json)
+        
+        # 使用服務帳戶金鑰連線
+        gc = gspread.service_account_from_dict(creds_dict)
         spreadsheet_url = st.secrets["spreadsheet_url"]
         return gc.open_by_url(spreadsheet_url)
     except Exception as e:
-        st.error(f"公開試算表連線失敗，請檢查網址或共用權限：{e}")
+        st.error(f"連線授權失敗，請檢查保險箱設定：{e}")
         return None
 
 # 高速記憶體快取讀取
@@ -67,7 +72,7 @@ else:
         all_locs = ["所有位置"] + [str(x).strip() for x in df["位置"].unique() if str(x).strip()]
         selected_loc = st.selectbox("📍 選擇位置 (快速篩選)", all_locs)
     with col_filter2:
-        all_lines = ["所有產線"] + [str(x).strip() for x in df["產線"].unique() if str(x).strip()]
+        all_lines = ["所有產 line"] + [str(x).strip() for x in df["產線"].unique() if str(x).strip()]
         selected_line = st.selectbox("⚙️ 選擇產線 (快速篩選)", all_lines)
 
     search_keyword = st.text_input("🔍 輸入關鍵字 (可搜部品名稱、型號、廠牌或設備...)", "").strip().lower()
@@ -89,7 +94,7 @@ else:
         st.info("沒有找到符合的備品 ❌")
     else:
         for idx, row in filtered_df.iterrows():
-            remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else 0
+            remain_val = int(row["殘數"]) if str(row["殘数"]).isdigit() else 0
             is_zero = remain_val <= 0
             
             card_color = "#f8d7da" if is_zero else "#ffffff"
@@ -115,6 +120,7 @@ else:
                     take_amt = st.number_input(f"領取數量", min_value=1, max_value=remain_val, value=1, key=f"amt_{row['行數']}", label_visibility="collapsed")
                 with col_btn:
                     if st.button("確認領取", key=f"btn_{row['行數']}", type="primary", use_container_width=True):
+                        # 🌟 這裡已完美修正為 row["使用"] 🌟
                         current_used = int(row["使用"]) if str(row["使用"]).isdigit() else 0
                         new_used = current_used + take_amt
                         
