@@ -79,39 +79,15 @@ def bg_update_google(row_num, used_col, new_used):
     except Exception as e:
         print(f"背景同步失敗: {e}")
 
-# 🌟 彈窗防呆升級：強制為內部按鈕綁定 row_idx 的唯一身分證金鑰，徹底解決 StreamlitAPIException Bug 🌟
-@st.dialog("⚠️ 領取扣除確認")
-def show_confirm_dialog(row_idx, part_name, take_amount, remain_val, current_used):
-    st.warning(f"確定要從庫存扣除 【{part_name}】 數量 **{take_amount}** 件嗎？")
-    st.write(f"扣除後目前殘數將從 {remain_val} 件變更為 {remain_val - take_amount} 件。")
-    
-    col_yes, col_no = st.columns(2)
-    with col_yes:
-        # 🔑 加上專屬唯一的 key=f"yes_final_dialog_{row_idx}"，保證永不撞號！
-        if st.button("⭕ 是，確定扣除", key=f"yes_final_dialog_{row_idx}", type="danger", use_container_width=True):
-            with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
-                new_used = current_used + take_amount
-                new_remain = remain_val - take_amount
-                
-                # 更新記憶體數據
-                st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == row_idx, '使用'] = str(new_used)
-                st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == row_idx, '殘數'] = str(new_remain)
-                
-                # 啟動背景非同步更新雲端 Excel
-                t = threading.Thread(target=bg_update_google, args=(row_idx, 9, new_used))
-                t.start()
-                
-                st.toast(f"✅ 成功扣除備品數量 {take_amount} 件！")
-                time.sleep(0.8)
-                st.rerun()
-    with col_no:
-        # 🔑 加上專屬唯一的 key=f"no_final_dialog_{row_idx}"，保證永不撞號！
-        if st.button("❌ 取消", key=f"no_final_dialog_{row_idx}", type="secondary", use_container_width=True):
-            st.rerun()
-
 # --- 核心主程式執行區 ---
 if check_password():
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
+
+    # 💡 建立全域確認鎖字典，精確管控每行卡片的點擊狀態
+    if "active_confirm_row" not in st.session_state:
+        st.session_state["active_confirm_row"] = None
+    if "active_take_amount" not in st.session_state:
+        st.session_state["active_take_amount"] = 1
 
     with st.spinner("🔄 正在連線雲端資料庫，請稍候..."):
         raw_df = load_data()
@@ -173,13 +149,47 @@ if check_password():
                 )
                 
                 if not is_zero:
-                    col_input, col_btn = st.columns(2)
-                    with col_input:
-                        take_amt = st.number_input(f"領取數量", min_value=1, max_value=remain_val, value=1, key=f"amt_{row_idx}", label_visibility="collapsed")
-                    with col_btn:
-                        if st.button("確認領取", key=f"btn_{row_idx}", type="primary", use_container_width=True):
-                            current_used = int(row["使用"]) if str(row["使用"]).isdigit() else 0
-                            show_confirm_dialog(row_idx, row['部品名稱'], take_amt, remain_val, current_used)
+                    # 🌟 核心防當機制：判斷目前這張卡片是否正處於「二次確認狀態」
+                    if st.session_state["active_confirm_row"] != row_idx:
+                        # 正常狀態：顯示數量輸入框與確認領取按鈕
+                        col_input, col_btn = st.columns(2)
+                        with col_input:
+                            take_amt = st.number_input(f"領取數量", min_value=1, max_value=remain_val, value=1, key=f"amt_{row_idx}", label_visibility="collapsed")
+                        with col_btn:
+                            if st.button("確認領取", key=f"btn_{row_idx}", type="primary", use_container_width=True):
+                                # 鎖定當前點擊的行數，並記住數量
+                                st.session_state["active_confirm_row"] = row_idx
+                                st.session_state["active_take_amount"] = take_amt
+                                st.rerun()
+                    else:
+                        # 🌟 原地展開防呆確認區塊：完全脫離彈窗，100% 免疫重複元件衝突錯誤！🌟
+                        saved_amt = st.session_state["active_take_amount"]
+                        st.warning(f"⚠️ 確定要從庫存扣除 【{row['部品名稱']}】 數量 {saved_amt} 件嗎？")
+                        
+                        col_yes, col_no = st.columns(2)
+                        with col_yes:
+                            if st.button("⭕ 是，確定扣除", key=f"yes_native_lock_{row_idx}", type="danger", use_container_width=True):
+                                with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
+                                    current_used = int(row["使用"]) if str(row["使用"]).isdigit() else 0
+                                    new_used = current_used + saved_amt
+                                    new_remain = remain_val - saved_amt
+                                    
+                                    # 更新記憶體數據
+                                    st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == row_idx, '使用'] = str(new_used)
+                                    st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == row_idx, '殘數'] = str(new_remain)
+                                    
+                                    # 啟動背景非同步更新雲端 Excel
+                                    t = threading.Thread(target=bg_update_google, args=(row_idx, 9, new_used))
+                                    t.start()
+                                    
+                                    st.toast(f"✅ 成功扣除備品數量 {saved_amt} 件！")
+                                    st.session_state["active_confirm_row"] = None  # 解鎖
+                                    time.sleep(0.8)
+                                    st.rerun()
+                        with col_no:
+                            if st.button("❌ 取消", key=f"no_native_lock_{row_idx}", type="secondary", use_container_width=True):
+                                st.session_state["active_confirm_row"] = None  # 解鎖
+                                st.rerun()
 
         st.markdown("---")
         if st.button("🔄 手動同步雲端最新數據", key="manual_sync_btn", use_container_width=True):
@@ -187,4 +197,5 @@ if check_password():
                 st.cache_data.clear()
                 if "df_data" in st.session_state:
                     del st.session_state["df_data"]
+                st.session_state["active_confirm_row"] = None
                 st.rerun()
