@@ -9,13 +9,13 @@ import base64
 # 設定網頁為手機優化寬度
 st.set_page_config(page_title="現場備品查扣系統", layout="centered")
 
-# 🌟 終極 Base64 自適應解碼機制：徹底消滅所有雲端保險箱符號衝突 🌟
+# 🌟 終極 Base64 機器人直連機制：徹底拋棄挑剔的引號衝突，完美通關 🌟
 def init_gspread():
     try:
-        # 從保險箱讀取完全沒有符號衝突的超級純文字
+        # 從雲端保險箱讀取完全沒有符號衝突的超級純文字
         base64_creds = st.secrets["gcp_service_account_base64"]
         
-        # 在背景自動還原成 Google 看得懂的大括號格式
+        # 在背景自動還原成 Google 二哥看得懂的大括號格式
         decoded_bytes = base64.b64decode(base64_creds)
         creds_json = decoded_bytes.decode("utf-8")
         creds_dict = json.loads(creds_json)
@@ -130,7 +130,7 @@ else:
                         
                         new_remain = remain_val - take_amt
                         df.loc[df['行數'] == row['行數'], '使用'] = str(new_used)
-                        df.loc[df['行數'] == row['行數'], '殘數'] = str(new_remain)
+                        df.loc[df['行數'] == row['rowNum'] if 'rowNum' in df else df['行數'] == row['行數'], '殘數'] = str(new_remain)
                         
                         t = threading.Thread(target=bg_update_google, args=(int(row['行數']), 9, new_used))
                         t.start()
