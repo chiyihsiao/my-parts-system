@@ -79,7 +79,7 @@ def bg_update_google(row_num, used_col, new_used):
     except Exception as e:
         print(f"背景同步失敗: {e}")
 
-# 🌟 官方最推薦、絕對不可能撞號當機的「中央防呆彈窗」功能 🌟
+# 🌟 彈窗防呆升級：強制為內部按鈕綁定 row_idx 的唯一身分證金鑰，徹底解決 StreamlitAPIException Bug 🌟
 @st.dialog("⚠️ 領取扣除確認")
 def show_confirm_dialog(row_idx, part_name, take_amount, remain_val, current_used):
     st.warning(f"確定要從庫存扣除 【{part_name}】 數量 **{take_amount}** 件嗎？")
@@ -87,7 +87,8 @@ def show_confirm_dialog(row_idx, part_name, take_amount, remain_val, current_use
     
     col_yes, col_no = st.columns(2)
     with col_yes:
-        if st.button("⭕ 是，確定扣除", type="danger", use_container_width=True):
+        # 🔑 加上專屬唯一的 key=f"yes_final_dialog_{row_idx}"，保證永不撞號！
+        if st.button("⭕ 是，確定扣除", key=f"yes_final_dialog_{row_idx}", type="danger", use_container_width=True):
             with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
                 new_used = current_used + take_amount
                 new_remain = remain_val - take_amount
@@ -104,7 +105,8 @@ def show_confirm_dialog(row_idx, part_name, take_amount, remain_val, current_use
                 time.sleep(0.8)
                 st.rerun()
     with col_no:
-        if st.button("❌ 取消", type="secondary", use_container_width=True):
+        # 🔑 加上專屬唯一的 key=f"no_final_dialog_{row_idx}"，保證永不撞號！
+        if st.button("❌ 取消", key=f"no_final_dialog_{row_idx}", type="secondary", use_container_width=True):
             st.rerun()
 
 # --- 核心主程式執行區 ---
@@ -117,7 +119,6 @@ if check_password():
     if raw_df.empty:
         st.warning("資料庫載入中，正在從您的 Google 試算表即時同步...")
     else:
-        # 🌟 徹底捨棄 st.context，回歸最基本的老實寫法，100% 解決 AttributeError
         if "df_data" not in st.session_state:
             st.session_state["df_data"] = raw_df.copy()
 
@@ -181,7 +182,6 @@ if check_password():
                             show_confirm_dialog(row_idx, row['部品名稱'], take_amt, remain_val, current_used)
 
         st.markdown("---")
-        # 🔄 手動同步按鈕：回歸最單純的清快取重整寫法
         if st.button("🔄 手動同步雲端最新數據", key="manual_sync_btn", use_container_width=True):
             with st.spinner("📥 正在重新抓取最新試算表庫存..."):
                 st.cache_data.clear()
