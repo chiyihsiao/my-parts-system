@@ -87,7 +87,6 @@ def show_confirm_dialog(row_idx, part_name, take_amount, remain_val, current_use
     
     col_yes, col_no = st.columns(2)
     with col_yes:
-        # 這裡的按鈕完全獨立於卡片外，身份證字號唯一，100% 根除 StreamlitAPIException！
         if st.button("⭕ 是，確定扣除", type="danger", use_container_width=True):
             with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
                 new_used = current_used + take_amount
@@ -118,12 +117,9 @@ if check_password():
     if raw_df.empty:
         st.warning("資料庫載入中，正在從您的 Google 試算表即時同步...")
     else:
-        # 將資料存在會話狀態，方便彈窗即時更改
-        if "df_data" not in st.session_state or st.button("🔄 手動同步雲端最新數據", key="global_sync_btn", use_container_width=True):
+        # 🌟 徹底捨棄 st.context，回歸最基本的老實寫法，100% 解決 AttributeError
+        if "df_data" not in st.session_state:
             st.session_state["df_data"] = raw_df.copy()
-            if "global_sync_btn" in st.context.triggered_keys:
-                st.cache_data.clear()
-                st.rerun()
 
         current_df = st.session_state["df_data"]
 
@@ -180,9 +176,15 @@ if check_password():
                     with col_input:
                         take_amt = st.number_input(f"領取數量", min_value=1, max_value=remain_val, value=1, key=f"amt_{row_idx}", label_visibility="collapsed")
                     with col_btn:
-                        # 點擊按鈕，立刻呼叫官方安全獨立大彈窗
                         if st.button("確認領取", key=f"btn_{row_idx}", type="primary", use_container_width=True):
                             current_used = int(row["使用"]) if str(row["使用"]).isdigit() else 0
                             show_confirm_dialog(row_idx, row['部品名稱'], take_amt, remain_val, current_used)
 
         st.markdown("---")
+        # 🔄 手動同步按鈕：回歸最單純的清快取重整寫法
+        if st.button("🔄 手動同步雲端最新數據", key="manual_sync_btn", use_container_width=True):
+            with st.spinner("📥 正在重新抓取最新試算表庫存..."):
+                st.cache_data.clear()
+                if "df_data" in st.session_state:
+                    del st.session_state["df_data"]
+                st.rerun()
