@@ -65,7 +65,7 @@ def bg_update_google(row_num, used_col, new_used):
         print(f"背景同步失敗: {e}")
 
 # --- 網頁介面開始 ---
-st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 備品快速查扣系統 (Python版)</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
 
 df = load_data()
 
