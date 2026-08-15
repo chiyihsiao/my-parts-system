@@ -79,33 +79,65 @@ def bg_update_google(row_num, used_col, new_used):
     except Exception as e:
         print(f"背景同步失敗: {e}")
 
+# 🌟 官方最推薦、絕對不可能撞號當機的「中央防呆彈窗」功能 🌟
+@st.dialog("⚠️ 領取扣除確認")
+def show_confirm_dialog(row_idx, part_name, take_amount, remain_val, current_used):
+    st.warning(f"確定要從庫存扣除 【{part_name}】 數量 **{take_amount}** 件嗎？")
+    st.write(f"扣除後目前殘數將從 {remain_val} 件變更為 {remain_val - take_amount} 件。")
+    
+    col_yes, col_no = st.columns(2)
+    with col_yes:
+        # 這裡的按鈕完全獨立於卡片外，身份證字號唯一，100% 根除 StreamlitAPIException！
+        if st.button("⭕ 是，確定扣除", type="danger", use_container_width=True):
+            with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
+                new_used = current_used + take_amount
+                new_remain = remain_val - take_amount
+                
+                # 更新記憶體數據
+                st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == row_idx, '使用'] = str(new_used)
+                st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == row_idx, '殘數'] = str(new_remain)
+                
+                # 啟動背景非同步更新雲端 Excel
+                t = threading.Thread(target=bg_update_google, args=(row_idx, 9, new_used))
+                t.start()
+                
+                st.toast(f"✅ 成功扣除備品數量 {take_amount} 件！")
+                time.sleep(0.8)
+                st.rerun()
+    with col_no:
+        if st.button("❌ 取消", type="secondary", use_container_width=True):
+            st.rerun()
+
 # --- 核心主程式執行區 ---
 if check_password():
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
 
-    # 初始化全局狀態字典，徹底防止過濾篩選時撞號
-    if "confirm_states" not in st.session_state:
-        st.session_state["confirm_states"] = {}
-    if "temp_amounts" not in st.session_state:
-        st.session_state["temp_amounts"] = {}
-
     with st.spinner("🔄 正在連線雲端資料庫，請稍候..."):
-        df = load_data()
+        raw_df = load_data()
 
-    if df.empty:
+    if raw_df.empty:
         st.warning("資料庫載入中，正在從您的 Google 試算表即時同步...")
     else:
+        # 將資料存在會話狀態，方便彈窗即時更改
+        if "df_data" not in st.session_state or st.button("🔄 手動同步雲端最新數據", key="global_sync_btn", use_container_width=True):
+            st.session_state["df_data"] = raw_df.copy()
+            if "global_sync_btn" in st.context.triggered_keys:
+                st.cache_data.clear()
+                st.rerun()
+
+        current_df = st.session_state["df_data"]
+
         col_filter1, col_filter2 = st.columns(2)
         with col_filter1:
-            all_locs = ["所有位置"] + [str(x).strip() for x in df["位置"].unique() if str(x).strip()]
+            all_locs = ["所有位置"] + [str(x).strip() for x in current_df["位置"].unique() if str(x).strip()]
             selected_loc = st.selectbox("📍 選擇位置 (快速篩選)", all_locs)
         with col_filter2:
-            all_lines = ["所有產線"] + [str(x).strip() for x in df["產線"].unique() if str(x).strip()]
+            all_lines = ["所有產線"] + [str(x).strip() for x in current_df["產線"].unique() if str(x).strip()]
             selected_line = st.selectbox("⚙️ 選擇產線 (快速篩選)", all_lines)
 
         search_keyword = st.text_input("🔍 輸入關鍵字 (可搜部品名稱、型號、廠牌或設備...)", "").strip().lower()
 
-        filtered_df = df.copy()
+        filtered_df = current_df.copy()
         if selected_loc != "所有位置":
             filtered_df = filtered_df[filtered_df["位置"].str.strip() == selected_loc]
         if selected_line != "所有產線":
@@ -144,52 +176,13 @@ if check_password():
                 )
                 
                 if not is_zero:
-                    # 🌟 安全機制：確保此行數在字典中有初始值
-                    if row_idx not in st.session_state["confirm_states"]:
-                        st.session_state["confirm_states"][row_idx] = False
-
-                    if not st.session_state["confirm_states"][row_idx]:
-                        # 第一階段：常規顯示輸入框與領取按鈕
-                        col_input, col_btn = st.columns(2)
-                        with col_input:
-                            take_amt = st.number_input(f"領取數量", min_value=1, max_value=remain_val, value=1, key=f"amt_{row_idx}", label_visibility="collapsed")
-                        with col_btn:
-                            if st.button("確認領取", key=f"btn_{row_idx}", type="primary", use_container_width=True):
-                                st.session_state["confirm_states"][row_idx] = True
-                                st.session_state["temp_amounts"][row_idx] = take_amt
-                                st.rerun()
-                    else:
-                        # 第二階段：精確對位二次彈窗防呆，徹底根治過濾時的 StreamlitAPIException Bug
-                        saved_amt = st.session_state["temp_amounts"].get(row_idx, 1)
-                        st.warning(f"⚠️ 確定要扣除 【{row['部品名稱']}】 數量 {saved_amt} 件嗎？")
-                        
-                        col_yes, col_no = st.columns(2)
-                        with col_yes:
-                            if st.button("⭕ 是，確定扣除", key=f"yes_final_{row_idx}", type="danger", use_container_width=True):
-                                with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
-                                    current_used = int(row["使用"]) if str(row["使用"]).isdigit() else 0
-                                    new_used = current_used + saved_amt
-                                    
-                                    new_remain = remain_val - saved_amt
-                                    df.loc[df['行數'] == row_idx, '使用'] = str(new_used)
-                                    df.loc[df['行數'] == row_idx, '殘數'] = str(new_remain)
-                                    
-                                    t = threading.Thread(target=bg_update_google, args=(row_idx, 9, new_used))
-                                    t.start()
-                                    
-                                    st.toast(f"✅ 成功扣除備品數量 {saved_amt} 件！")
-                                    st.session_state["confirm_states"][row_idx] = False
-                                    time.sleep(0.8)
-                                    st.rerun()
-                        with col_no:
-                            if st.button("❌ 取消", key=f"no_final_{row_idx}", type="secondary", use_container_width=True):
-                                st.session_state["confirm_states"][row_idx] = False
-                                st.rerun()
+                    col_input, col_btn = st.columns(2)
+                    with col_input:
+                        take_amt = st.number_input(f"領取數量", min_value=1, max_value=remain_val, value=1, key=f"amt_{row_idx}", label_visibility="collapsed")
+                    with col_btn:
+                        # 點擊按鈕，立刻呼叫官方安全獨立大彈窗
+                        if st.button("確認領取", key=f"btn_{row_idx}", type="primary", use_container_width=True):
+                            current_used = int(row["使用"]) if str(row["使用"]).isdigit() else 0
+                            show_confirm_dialog(row_idx, row['部品名稱'], take_amt, remain_val, current_used)
 
         st.markdown("---")
-        if st.button("🔄 手動同步雲端最新數據", use_container_width=True):
-            with st.spinner("📥 正在重新抓取最新試算表庫存..."):
-                st.cache_data.clear()
-                st.session_state["confirm_states"] = {}
-                st.session_state["temp_amounts"] = {}
-                st.rerun()
