@@ -81,7 +81,7 @@ def bg_update_google(row_num, used_col, new_used):
 
 # --- 核心主程式執行區 ---
 if check_password():
-    # 🌟 修改大標題為：SANBAN備品快速查扣系統 (網頁版)
+    # 大標題：SANBAN備品快速查扣系統 (網頁版)
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
 
     # ⏳ 載入時的動態加載提示
@@ -101,83 +101,86 @@ if check_password():
 
         search_keyword = st.text_input("🔍 輸入關鍵字 (可搜部品名稱、型號、廠牌或設備...)", "").strip().lower()
 
-        filtered_df = df.copy()
-        if selected_loc != "所有位置":
-            filtered_df = filtered_df[filtered_df["位置"].str.strip() == selected_loc]
-        if selected_line != "所有產線":
-            filtered_df = filtered_df[filtered_df["產線"].str.strip() == selected_line]
-        if search_keyword:
-            filtered_df = filtered_df[
-                filtered_df["部品名稱"].str.lower().str.contains(search_keyword) |
-                filtered_df["部品型號"].str.lower().str.contains(search_keyword) |
-                filtered_df["設備名"].str.lower().str.contains(search_keyword) |
-                filtered_df["廠牌"].str.lower().str.contains(search_keyword)
-            ]
+    filtered_df = df.copy()
+    if selected_loc != "所有位置":
+        filtered_df = filtered_df[filtered_df["位置"].str.strip() == selected_loc]
+    if selected_line != "所有產線":
+        filtered_df = filtered_df[filtered_df["產線"].str.strip() == selected_line]
+    if search_keyword:
+        filtered_df = filtered_df[
+            filtered_df["部品名稱"].str.lower().str.contains(search_keyword) |
+            filtered_df["部品型號"].str.lower().str.contains(search_keyword) |
+            filtered_df["設備名"].str.lower().str.contains(search_keyword) |
+            filtered_df["廠牌"].str.lower().str.contains(search_keyword)
+        ]
 
-        if filtered_df.empty:
-            st.info("沒有找到符合的備品 ❌")
-        else:
-            for idx, row in filtered_df.iterrows():
-                remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else 0
-                is_zero = remain_val <= 0
-                
-                card_color = "#f8d7da" if is_zero else "#ffffff"
-                st.markdown(
-                    f"""
-                    <div style="background-color:{card_color}; padding:15px; border-radius:10px; 
-                         box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-left: 5px solid {'#dc3545' if is_zero else '#28a745'}; margin-bottom:10px; margin-top:15px;">
-                        <h4 style="margin:0; color:#333;">{row['部品名稱']} <span style="font-size:0.8rem; background:#ffc107; color:black; padding:2px 6px; border-radius:3px;">{row['位置']}</span></h4>
-                        <p style="margin:5px 0; font-size:0.9rem; color:#666;">
-                            <b>型號：</b>{row['部品型號']}<br>
-                            <b>設備：</b>{row['設備名']} ({row['產線']})<br>
-                            <b>廠牌/編號：</b>{row['廠牌']} / {row['編號']}<br>
-                            <b>目前殘數：</b><span style="font-size:1.3rem; font-weight:bold; color:{'#dc3545' if is_zero else '#28a745'}">{remain_val}</span> (總數: {row['數量']} | 已用: {row['使用']})
-                        </p>
-                    </div>
-                    """, 
-                    unsafe_allow_html=True
-                )
-                
-                if not is_zero:
+    if filtered_df.empty:
+        st.info("沒有找到符合的備品 ❌")
+    else:
+        for idx, row in filtered_df.iterrows():
+            remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else 0
+            is_zero = remain_val <= 0
+            
+            card_color = "#f8d7da" if is_zero else "#ffffff"
+            st.markdown(
+                f"""
+                <div style="background-color:{card_color}; padding:15px; border-radius:10px; 
+                     box-shadow: 0 2px 5px rgba(0,0,0,0.1); border-left: 5px solid {'#dc3545' if is_zero else '#28a745'}; margin-bottom:10px; margin-top:15px;">
+                    <h4 style="margin:0; color:#333;">{row['部品名稱']} <span style="font-size:0.8rem; background:#ffc107; color:black; padding:2px 6px; border-radius:3px;">{row['位置']}</span></h4>
+                    <p style="margin:5px 0; font-size:0.9rem; color:#666;">
+                        <b>型號：</b>{row['部品型號']}<br>
+                        <b>設備：</b>{row['設備名']} ({row['產線']})<br>
+                        <b>廠牌/編號：</b>{row['廠牌']} / {row['編號']}<br>
+                        <b>目前殘數：</b><span style="font-size:1.3rem; font-weight:bold; color:{'#dc3545' if is_zero else '#28a745'}">{remain_val}</span> (總數: {row['數量']} | 已用: {row['使用']})
+                    </p>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+            
+            if not is_zero:
+                # 🌟 核心修正：將確認按鈕獨立放進它自己的區塊內，避免元件重複渲染當機 🌟
+                confirm_key = f"confirm_{row['行數']}"
+                if confirm_key not in st.session_state:
+                    st.session_state[confirm_key] = False
+
+                if not st.session_state[confirm_key]:
+                    # 第一階段：單純顯示「確認領取」
                     col_input, col_btn = st.columns(2)
                     with col_input:
                         take_amt = st.number_input(f"領取數量", min_value=1, max_value=remain_val, value=1, key=f"amt_{row['行數']}", label_visibility="collapsed")
                     with col_btn:
-                        # 🌟 新增二次對話框確認機制 (多一筆布林變數紀錄確認狀態)
-                        confirm_key = f"confirm_{row['行數']}"
-                        if confirm_key not in st.session_state:
-                            st.session_state[confirm_key] = False
-
-                        if not st.session_state[confirm_key]:
-                            if st.button("確認領取", key=f"btn_{row['行數']}", type="primary", use_container_width=True):
-                                st.session_state[confirm_key] = True
+                        if st.button("確認領取", key=f"btn_{row['行數']}", type="primary", use_container_width=True):
+                            st.session_state[confirm_key] = True
+                            st.session_state[f"temp_amt_{row['行數']}"] = take_amt  # 秘密記住數量
+                            st.rerun()
+                else:
+                    # 第二階段：觸發彈窗防呆，按鈕加上 _final 徹底分家，消除 StreamlitAPIException 錯誤！
+                    saved_amt = st.session_state.get(f"temp_amt_{row['行數']}", 1)
+                    st.warning(f"⚠️ 確定要扣除 【{row['部品名稱']}】 數量 {saved_amt} 件嗎？")
+                    
+                    col_yes, col_no = st.columns(2)
+                    with col_yes:
+                        if st.button("⭕ 是，確定扣除", key=f"yes_final_{row['行數']}", type="danger", use_container_width=True):
+                            with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
+                                current_used = int(row["使用"]) if str(row["使用"]).isdigit() else 0
+                                new_used = current_used + saved_amt
+                                
+                                new_remain = remain_val - saved_amt
+                                df.loc[df['行數'] == row['行數'], '使用'] = str(new_used)
+                                df.loc[df['行數'] == row['行數'], '殘數'] = str(new_remain)
+                                
+                                t = threading.Thread(target=bg_update_google, args=(int(row['行數']), 9, new_used))
+                                t.start()
+                                
+                                st.toast(f"✅ 成功扣除備品數量 {saved_amt} 件！")
+                                st.session_state[confirm_key] = False
+                                time.sleep(0.8)
                                 st.rerun()
-                        else:
-                            # 🚨 觸發二次彈窗防呆
-                            st.warning(f"⚠️ 確定要扣除 【{row['部品名稱']}】 數量 {take_amt} 件嗎？")
-                            col_yes, col_no = st.columns(2)
-                            with col_yes:
-                                if st.button("⭕ 是，確定扣除", key=f"yes_{row['行數']}", type="danger", use_container_width=True):
-                                    # ⏳ 執行加載提示
-                                    with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
-                                        current_used = int(row["使用"]) if str(row["使用"]).isdigit() else 0
-                                        new_used = current_used + take_amt
-                                        
-                                        new_remain = remain_val - take_amt
-                                        df.loc[df['行數'] == row['行數'], '使用'] = str(new_used)
-                                        df.loc[df['行數'] == row['行數'], '殘數'] = str(new_remain)
-                                        
-                                        t = threading.Thread(target=bg_update_google, args=(int(row['行數']), 9, new_used))
-                                        t.start()
-                                        
-                                        st.toast(f"✅ 成功扣除備品數量 {take_amt} 件！")
-                                        st.session_state[confirm_key] = False
-                                        time.sleep(0.8)
-                                        st.rerun()
-                            with col_no:
-                                if st.button("❌ 取消", key=f"no_{row['行數']}", type="secondary", use_container_width=True):
-                                    st.session_state[confirm_key] = False
-                                    st.rerun()
+                    with col_no:
+                        if st.button("❌ 取消", key=f"no_final_{row['行數']}", type="secondary", use_container_width=True):
+                            st.session_state[confirm_key] = False
+                            st.rerun()
 
         st.markdown("---")
         if st.button("🔄 手動同步雲端最新數據", use_container_width=True):
