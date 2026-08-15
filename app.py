@@ -4,15 +4,20 @@ import pandas as pd
 import threading
 import time
 import json
+import base64
 
 # 設定網頁為手機優化寬度
 st.set_page_config(page_title="現場備品查扣系統", layout="centered")
 
-# 🌟 雲端專用：強制從美國伺服器保險箱讀取網址與大括號憑證 🌟
+# 🌟 終極 Base64 自適應解碼機制：徹底消滅所有雲端保險箱符號衝突 🌟
 def init_gspread():
     try:
-        # 從雲端 Secrets 隱形保險箱安全提取 JSON 憑證字串
-        creds_json = st.secrets["gcp_service_account_raw"]
+        # 從保險箱讀取完全沒有符號衝突的超級純文字
+        base64_creds = st.secrets["gcp_service_account_base64"]
+        
+        # 在背景自動還原成 Google 看得懂的大括號格式
+        decoded_bytes = base64.b64decode(base64_creds)
+        creds_json = decoded_bytes.decode("utf-8")
         creds_dict = json.loads(creds_json)
         
         # 使用服務帳戶金鑰連線
@@ -20,7 +25,7 @@ def init_gspread():
         spreadsheet_url = st.secrets["spreadsheet_url"]
         return gc.open_by_url(spreadsheet_url)
     except Exception as e:
-        st.error(f"連線授權失敗，請檢查保險箱設定：{e}")
+        st.error(f"雲端保險箱授權解析失敗，請確認 Secrets 設定：{e}")
         return None
 
 # 高速記憶體快取讀取
@@ -65,14 +70,14 @@ st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>
 df = load_data()
 
 if df.empty:
-    st.warning("資料庫載入中，或雲端保險箱 Secrets 設定尚未完成。")
+    st.warning("資料庫載入中，正在從您的 Google 試算表即時同步...")
 else:
     col_filter1, col_filter2 = st.columns(2)
     with col_filter1:
         all_locs = ["所有位置"] + [str(x).strip() for x in df["位置"].unique() if str(x).strip()]
         selected_loc = st.selectbox("📍 選擇位置 (快速篩選)", all_locs)
     with col_filter2:
-        all_lines = ["所有產 line"] + [str(x).strip() for x in df["產線"].unique() if str(x).strip()]
+        all_lines = ["所有產線"] + [str(x).strip() for x in df["產線"].unique() if str(x).strip()]
         selected_line = st.selectbox("⚙️ 選擇產線 (快速篩選)", all_lines)
 
     search_keyword = st.text_input("🔍 輸入關鍵字 (可搜部品名稱、型號、廠牌或設備...)", "").strip().lower()
@@ -94,7 +99,7 @@ else:
         st.info("沒有找到符合的備品 ❌")
     else:
         for idx, row in filtered_df.iterrows():
-            remain_val = int(row["殘數"]) if str(row["殘数"]).isdigit() else 0
+            remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else 0
             is_zero = remain_val <= 0
             
             card_color = "#f8d7da" if is_zero else "#ffffff"
@@ -120,7 +125,6 @@ else:
                     take_amt = st.number_input(f"領取數量", min_value=1, max_value=remain_val, value=1, key=f"amt_{row['行數']}", label_visibility="collapsed")
                 with col_btn:
                     if st.button("確認領取", key=f"btn_{row['行數']}", type="primary", use_container_width=True):
-                        # 🌟 這裡已完美修正為 row["使用"] 🌟
                         current_used = int(row["使用"]) if str(row["使用"]).isdigit() else 0
                         new_used = current_used + take_amt
                         
