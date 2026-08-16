@@ -5,7 +5,7 @@ import threading
 import time
 import json
 import base64
-import requests 
+import requests  # 用於發送推播通知
 
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
@@ -44,31 +44,43 @@ def init_gspread():
         st.error(f"雲端保險箱授權解析失敗，請確認 Secrets 設定：{e}")
         return None
 
-# 高速記憶體快取讀取
+# ✨ 高速記憶體快取讀取（內建 503 自動重試喚醒機制）
 @st.cache_data(ttl=300) 
 def load_data():
-    try:
-        gs_client = init_gspread()
-        if gs_client is None:
-            return pd.DataFrame()
-        sheet = gs_client.get_worksheet(0)
-        raw_data = sheet.get_all_values()
-        if len(raw_data) <= 1:
-            return pd.DataFrame()
-        
-        cols = ['位置', '編號', '產線', '設備名', '部品名稱', '部品型號', '廠牌', '數量', '使用', '殘數']
-        processed_rows = []
-        for row in raw_data[1:]:
-            if len(row) < 10:
-                row += [''] * (10 - len(row))
-            processed_rows.append(row[:10])
+    max_retries = 3  # 最多重試 3 次
+    retry_delay = 2  # 每次失敗後等待的基礎秒數
+    
+    for attempt in range(max_retries):
+        try:
+            gs_client = init_gspread()
+            if gs_client is None:
+                return pd.DataFrame()
+            sheet = gs_client.get_worksheet(0)
+            raw_data = sheet.get_all_values()
+            if len(raw_data) <= 1:
+                return pd.DataFrame()
             
-        df = pd.DataFrame(processed_rows, columns=cols)
-        df['行數'] = range(2, len(df) + 2)
-        return df
-    except Exception as e:
-        st.error(f"讀取雲端資料失敗：{e}")
-        return pd.DataFrame()
+            cols = ['位置', '編號', '產線', '設備名', '部品名稱', '部品型號', '廠牌', '數量', '使用', '殘數']
+            processed_rows = []
+            for row in raw_data[1:]:
+                if len(row) < 10:
+                    row += [''] * (10 - len(row))
+                processed_rows.append(row[:10])
+                
+            df = pd.DataFrame(processed_rows, columns=cols)
+            df['行數'] = range(2, len(df) + 2)
+            return df
+        except Exception as e:
+            error_msg = str(e)
+            if "503" in error_msg or "unavailable" in error_msg.lower():
+                if attempt == max_retries - 1:
+                    return pd.DataFrame()
+                sleep_time = retry_delay * (attempt + 1)
+                time.sleep(sleep_time)
+            else:
+                st.error(f"讀取雲端資料失敗：{e}")
+                return pd.DataFrame()
+    return pd.DataFrame()
 
 # 背景非同步更新
 def bg_update_google(row_num, used_col, new_used):
@@ -79,27 +91,11 @@ def bg_update_google(row_num, used_col, new_used):
             sheet.update_cell(row_num, used_col, int(new_used))
     except Exception as e:
         print(f"背景同步失敗: {e}")
-# ✨ 新增：無腦免密碼推播通知功能
-def send_easy_notification(part_name, take_amt, remain_val):
-    try:
-        # 🔑 請把下面引號內的 Key，換成你手機 Push Deer APP 內取得的專屬 PushKey
-        my_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O" 
-        
-        # 組合推播訊息內容
-        text = f"🏭 SANBAN領取通知：{part_name} 已被領取 {take_amt} 件，庫存剩餘 {remain_val} 件。"
-        url = f"https://pushdeer.com{my_key}&text={text}"
-        
-        # 發送推播
-        requests.get(url)
-        print("🟢 推播通知已成功發送！")
-    except Exception as e:
-        print(f"⚠️ 推播發送失敗: {e}")
-
 # --- 核心主程式執行區 ---
 if check_password():
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
 
-    # 💡 全域狀態暫存器 (保留原本的)
+    # 💡 全域狀態暫存器
     if "selected_row_idx" not in st.session_state:
         st.session_state["selected_row_idx"] = None
     if "selected_part_name" not in st.session_state:
@@ -114,29 +110,15 @@ if check_password():
     with st.spinner("🔄 正在連線雲端資料庫，請稍候..."):
         raw_df = load_data()
 
-    # ✨ 這裡修改：解決 Google 503 導致空資料卡死的問題
+    # ✨ 解決 Google 503 導致畫面永久卡死的問題，提供救磚按鈕
     if raw_df.empty:
-        st.error("❌ 無法連線至 Google 雲端資料庫 (伺服器忙碌中或憑證失效)")
-        st.warning("💡 提示：這通常是 Google 伺服器暫時休眠。您可以嘗試點擊下方按鈕重新喚醒連線。")
-        
-        # 建立一個救磚按鈕
+        st.error("❌ 無法連線至 Google 雲端資料庫 (伺服器暫時忙碌中)")
+        st.warning("💡 提示：這通常是 Google 伺服器休眠。請點擊下方按鈕重新嘗試連線。")
         if st.button("🔌 嘗試重新喚醒並同步雲端數據", type="primary", use_container_width=True):
-            st.cache_data.clear() # 清除快取
+            st.cache_data.clear()
             if "df_data" in st.session_state:
                 del st.session_state["df_data"]
-            st.rerun() # 重新整理網頁再次讀取
-            
-    else:
-        # --- 以下完全接續你原本的 code (if "df_data" not in st.session_state...) ---
-        if "df_data" not in st.session_state:
-            st.session_state["df_data"] = raw_df.copy()
-
-        current_df = st.session_state["df_data"]
-        # ... 後續過濾、顯示卡片、GLOBAL_FINAL_CHECKBOX_LOCK 等程式碼均不變 ...
-
-
-    if raw_df.empty:
-        st.warning("資料庫載入中，正在從您的 Google 試算表即時同步...")
+            st.rerun()
     else:
         if "df_data" not in st.session_state:
             st.session_state["df_data"] = raw_df.copy()
@@ -204,8 +186,26 @@ if check_password():
                             st.session_state["selected_current_used"] = int(row["使用"]) if str(row["使用"]).isdigit() else 0
                             st.rerun()
 
-                           if confirm_check:
-                # 🚀 雙重防禦第一步：一打勾，在網頁轉圈圈前，第一時間「強行直連」把通知發出去
+        # 🌟🌟 終極安全防當解鎖：全面改用 st.checkbox 原生勾選鎖 🌟🌟
+        if st.session_state["selected_row_idx"] is not None:
+            st.markdown("---")
+            st.markdown(
+                f"""
+                <div style="background-color:#fff3cd; padding:15px; border-radius:10px; border-left: 5px solid #ffc107;">
+                    <h5 style="margin:0; color:#856404; font-weight:bold;">⚠️ 【領取扣除確認】</h5>
+                    <p style="margin:5px 0; color:#856404;">
+                        確定要從庫存扣除 <b>{st.session_state['selected_part_name']}</b> 數量 <b>{st.session_state['selected_take_amt']}</b> 件嗎？
+                    </p>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+            st.write("")
+            
+            confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
+            
+            if confirm_check:
+                # 🚀 雙重防禦第一步：一打勾，第一時間「強行直連」把通知發出去，確保不被刷新閹割
                 try:
                     f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
                     p_name = st.session_state['selected_part_name']
@@ -216,13 +216,12 @@ if check_password():
                     new_remain = r_val - amt_val
                     
                     msg_text = f"🏭 SANBAN領取通知：{p_name} 已被領取 {amt_val} 件，庫存剩餘 {new_remain} 件。"
-                    url_trigger = f"https://api2.pushdeer.com/message/push?pushkey={f_key}&text={msg_text}"
+                    url_trigger = f"https://pushdeer.com{f_key}&text={msg_text}"
                     
-                    # 💡 關鍵補強：偽裝成一般瀏覽器標頭，防止被伺服器防火牆當成惡意機器人阻擋
+                    # 💡 偽裝成一般瀏覽器標頭，防止被伺服器防火牆當成機器人阻擋
                     fake_headers = {
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/120.0.0.0 Safari/537.36"
                     }
-                    # 不使用背景執行，強行用主線程直接發送，設定超時 3 秒
                     requests.get(url_trigger, headers=fake_headers, timeout=3.0)
                 except Exception as err:
                     print(f"網頁前台直連發送推播失敗: {err}")
