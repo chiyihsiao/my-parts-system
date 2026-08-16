@@ -165,8 +165,9 @@ if check_password():
             for idx, row in filtered_df.iterrows():
                 row_idx = int(row['行數'])
                 
+                # 🛠️ 乾淨的數字轉型判斷
                 total_qty = int(row["數量"]) if str(row["數量"]).isdigit() else 0
-                used_val = int(row["使用"]) if str(row["ប្រើ"]).isdigit() or str(row["使用"]).isdigit() else 0
+                used_val = int(row["開"] if "開" in row else row["使用"]) if str(row["使用"]).isdigit() else 0
                 remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else (total_qty - used_val)
                 
                 is_zero = remain_val <= 0
