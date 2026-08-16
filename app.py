@@ -116,6 +116,18 @@ def load_data():
 if check_password():
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
 
+    # 🛠️ 核心修正：初始化全域狀態暫存器，防止重整時出現 KeyError 錯誤
+    if "selected_row_idx" not in st.session_state:
+        st.session_state["selected_row_idx"] = None
+    if "selected_part_name" not in st.session_state:
+        st.session_state["selected_part_name"] = ""
+    if "selected_take_amt" not in st.session_state:
+        st.session_state["selected_take_amt"] = 0
+    if "selected_remain_val" not in st.session_state:
+        st.session_state["selected_remain_val"] = 0
+    if "selected_current_used" not in st.session_state:
+        st.session_state["selected_current_used"] = 0
+
     with st.spinner("🔄 正在連線雲端資料庫，請稍候..."):
         raw_df = load_data()
 
@@ -165,9 +177,9 @@ if check_password():
             for idx, row in filtered_df.iterrows():
                 row_idx = int(row['行數'])
                 
-                # 🛠️ 乾淨的數字轉型判斷
+                # 乾淨的數字轉型判斷
                 total_qty = int(row["數量"]) if str(row["數量"]).isdigit() else 0
-                used_val = int(row["開"] if "開" in row else row["使用"]) if str(row["使用"]).isdigit() else 0
+                used_val = int(row["使用"]) if str(row["使用"]).isdigit() else 0
                 remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else (total_qty - used_val)
                 
                 is_zero = remain_val <= 0
