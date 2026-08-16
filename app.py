@@ -135,6 +135,8 @@ if check_password():
         st.session_state["selected_remain_val"] = 0
     if "selected_current_used" not in st.session_state:
         st.session_state["selected_current_used"] = 0
+    if "deduct_confirm_version" not in st.session_state:
+        st.session_state["deduct_confirm_version"] = 0
 
     with st.spinner("🔄 正在連線雲端資料庫，請稍候..."):
         raw_df = load_data()
@@ -213,8 +215,8 @@ if check_password():
                             st.session_state["selected_take_amt"] = take_amt
                             st.session_state["selected_remain_val"] = remain_val
                             st.session_state["selected_current_used"] = int(row["使用"]) if str(row["使用"]).isdigit() else 0
-                            # 選擇新的扣除項目時，清除上一筆的確認狀態，避免誤觸發。
-                            st.session_state["GLOBAL_FINAL_CHECKBOX_LOCK"] = False
+                            # 使用新的 widget key 取代直接修改 checkbox 綁定狀態，避免 Streamlit 例外。
+                            st.session_state["deduct_confirm_version"] += 1
                             st.rerun()
 
         # 🌟🌟 終極安全防當解鎖：全面改用 st.checkbox 原生勾選鎖 🌟🌟
@@ -233,7 +235,8 @@ if check_password():
             )
             st.write("")
             
-            confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
+            confirm_key = f"GLOBAL_FINAL_CHECKBOX_LOCK_{st.session_state['deduct_confirm_version']}"
+            confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key=confirm_key)
             
             if confirm_check:
                 st.warning("請再次確認：按下下方「確認扣除」後，才會正式扣除庫存；此操作完成後請依實際需求處理退回或更正。")
@@ -268,7 +271,8 @@ if check_password():
 
                         st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
                         st.session_state["selected_row_idx"] = None
-                        st.session_state["GLOBAL_FINAL_CHECKBOX_LOCK"] = False
+                        # 下次選取項目時會使用新的 checkbox key，不直接改寫 widget 狀態。
+                        st.session_state["deduct_confirm_version"] += 1
                         time.sleep(0.8)
                         st.rerun()
 
