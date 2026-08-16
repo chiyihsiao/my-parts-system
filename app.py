@@ -10,7 +10,7 @@ import requests  # 用於發送推播通知
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
 
-# --- 🔐 密碼保護機制（修正版：100% 複製終端機成功格式） ---
+# --- 🔐 密碼保護機制（修正版：100% 複製你領取成功的 GET + Threading 格式） ---
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
@@ -24,14 +24,14 @@ def check_password():
     if st.button("確認登入", type="primary", use_container_width=True):
         if user_password == st.secrets["app_password"]:
             
-            # 🎯 【登入成功】：採用終端機成功的標準 GET 格式，直接連線
+            # 🎯 【追加 1】：有人登入成功通知（使用你保證能動的 Threading 格式）
             try:
-                f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
-                msg_text = "🔑 SANBAN系統：有人登入成功！"
-                url_trigger = f"https://pushdeer.com{f_key}&text={msg_text}"
+                final_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
+                text_content = "🔑_SANBAN系統：有人登入成功！"
+                url_trigger = f"https://pushdeer.com{final_key}&text={text_content}"
                 
-                # 走主線道直接發送，跟你在終端機按 Enter 一樣，發完才重新整理網頁
-                requests.get(url_trigger, timeout=3.0)
+                t_login_ok = threading.Thread(target=requests.get, args=(url_trigger,))
+                t_login_ok.start()
             except:
                 pass
                 
@@ -39,13 +39,14 @@ def check_password():
             st.rerun()
         else:
             
-            # 🚨 【密碼打錯】：採用終端機成功的標準 GET 格式，直接連線
+            # 🚨 【追加 2】：密碼輸入錯誤警報（使用你保證能動的 Threading 格式）
             try:
-                f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
-                msg_text = "⚠️ 警告：SANBAN系統有人密碼輸入錯誤！"
-                url_trigger = f"https://pushdeer.com{f_key}&text={msg_text}"
+                final_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
+                text_content = "⚠️_警告：SANBAN系統有人密碼輸入錯誤！"
+                url_trigger = f"https://pushdeer.com{final_key}&text={text_content}"
                 
-                requests.get(url_trigger, timeout=3.0)
+                t_login_err = threading.Thread(target=requests.get, args=(url_trigger,))
+                t_login_err.start()
             except:
                 pass
                 
@@ -70,8 +71,8 @@ def init_gspread():
 # ✨ 高速記憶體快取讀取（內建 503 自動重試喚醒機制）
 @st.cache_data(ttl=300) 
 def load_data():
-    max_retries = 3
-    retry_delay = 2
+    max_retries = 3  # 最多重試 3 次
+    retry_delay = 2  # 每次失敗後等待的基礎秒數
     
     for attempt in range(max_retries):
         try:
@@ -133,9 +134,10 @@ if check_password():
     with st.spinner("🔄 正在連線雲端資料庫，請稍候..."):
         raw_df = load_data()
 
+    # ✨ 解決 Google 503 導致畫面永久卡死的問題，提供救磚按鈕
     if raw_df.empty:
         st.error("❌ 無法連線至 Google 雲端資料庫 (伺服器暫時忙碌中)")
-        st.warning("💡 提示：請點擊下方按鈕重新嘗試連線。")
+        st.warning("💡 提示：這通常是 Google 伺服器休眠。請點擊下方按鈕重新嘗試連線。")
         if st.button("🔌 嘗試重新喚醒並同步雲端數據", type="primary", use_container_width=True):
             st.cache_data.clear()
             if "df_data" in st.session_state:
@@ -227,32 +229,35 @@ if check_password():
             confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
             
             if confirm_check:
-                target_row = st.session_state["selected_row_idx"]
-                amt = st.session_state["selected_take_amt"]
-                r_val = st.session_state["selected_remain_val"]
-                c_used = st.session_state["selected_current_used"]
-                
-                new_used = c_used + amt
-                new_remain = r_val - amt
-                
-                # 🚀 雙重防禦第一步：100% 採用終端機成功的標準 GET 格式，直接連線發送
+                # 🚀 雙重防禦第一步：模擬你在 PowerShell 測試成功的 POST 格式發送領取通知！
                 try:
-                    final_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
-                    part_name_msg = st.session_state['selected_part_name']
-                    text_content = f"🏭 SANBAN領取通知：{part_name_msg} 已被領取 {amt} 件，庫存剩餘 {new_remain} 件。"
-                    url_trigger = f"https://pushdeer.com{final_key}&text={text_content}"
+                    p_name = st.session_state['selected_part_name']
+                    amt_val = st.session_state['selected_take_amt']
+                    r_val = st.session_state["selected_remain_val"]
+                    new_remain = r_val - amt_val
                     
-                    # 🚫 不使用背景 Threading，強迫 Python 在這裡直連等發完，保證跟終端機一樣穩
-                    requests.get(url_trigger, timeout=3.0)
+                    body_payload = {
+                        "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",
+                        "text": f"🏭 SANBAN領取通知：{p_name}",
+                        "desp": f"領取數量：{amt_val} 件\n庫存剩餘：{new_remain} 件"
+                    }
+                    
+                    url_trigger = "https://pushdeer.com"
+                    threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
                 except Exception as err:
-                    print(f"發送領取推播失敗: {err}")
+                    print(f"發送推播失敗: {err}")
 
-                # 🚀 雙重防禦第二步：通知送出後，接著處理你原本的 Google 試算表寫入
+                # 🚀 雙重防禦第二步：處理你原本完美能動的 Google 試算表寫入
                 with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
+                    target_row = st.session_state["selected_row_idx"]
+                    amt = st.session_state["selected_take_amt"]
+                    c_used = st.session_state["selected_current_used"]
+                    
+                    new_used = c_used + amt
+                    
                     st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
                     st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
                     
-                    # 背景同步更新雲端 Excel
                     t = threading.Thread(target=bg_update_google, args=(target_row, 9, new_used))
                     t.start()
                     
