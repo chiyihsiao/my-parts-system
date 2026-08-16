@@ -5,6 +5,7 @@ import threading
 import time
 import json
 import base64
+import requests 
 
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
@@ -78,6 +79,21 @@ def bg_update_google(row_num, used_col, new_used):
             sheet.update_cell(row_num, used_col, int(new_used))
     except Exception as e:
         print(f"背景同步失敗: {e}")
+# ✨ 新增：無腦免密碼推播通知功能
+def send_easy_notification(part_name, take_amt, remain_val):
+    try:
+        # 🔑 請把下面引號內的 Key，換成你手機 Push Deer APP 內取得的專屬 PushKey
+        my_key = "PDUxxxxxxxxxxxxxxxxxxxx" 
+        
+        # 組合推播訊息內容
+        text = f"🏭 SANBAN領取通知：{part_name} 已被領取 {take_amt} 件，庫存剩餘 {remain_val} 件。"
+        url = f"https://pushdeer.com{my_key}&text={text}"
+        
+        # 發送推播
+        requests.get(url)
+        print("🟢 推播通知已成功發送！")
+    except Exception as e:
+        print(f"⚠️ 推播發送失敗: {e}")
 
 # --- 核心主程式執行區 ---
 if check_password():
@@ -224,6 +240,13 @@ if check_password():
                     # 啟動背景非同步更新雲端 Excel
                     t = threading.Thread(target=bg_update_google, args=(target_row, 9, new_used))
                     t.start()
+
+                    # ✨ ✨ 【就在這裡補上這 4 行】讓推播在背景發送，不卡網頁速度 ✨ ✨
+                    t_notify = threading.Thread(
+                        target=send_easy_notification, 
+                        args=(st.session_state['selected_part_name'], amt, new_remain)
+                    )
+                    t_notify.start()
                     
                     st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
                     st.session_state["selected_row_idx"] = None # 重設回歸
