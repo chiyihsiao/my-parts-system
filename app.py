@@ -1,6 +1,7 @@
 import streamlit as st
 import gspread
 import pandas as pd
+import threading
 import time
 import json
 import base64
@@ -9,22 +10,26 @@ import requests  # 用於發送推播通知
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
 
-# --- 📢 PushDeer 遠端通知通用函式 ---
-def send_pushdeer_notification(text_title, desp_content):
-    """
-    發送 PushDeer 推播通知（改回同步發送，確保 100% 抵達不遺失）
-    """
+# --- 📱 手機推播通知 ---
+def send_push_notification(title, description):
+    """以背景執行方式發送 PushDeer 通知，避免阻塞 Streamlit 畫面。"""
     try:
+        pushkey = st.secrets.get("pushdeer_pushkey", "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O")
         body_payload = {
-            "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",
-            "text": text_title,
-            "desp": desp_content
+            "pushkey": pushkey,
+            "text": title,
+            "desp": description,
         }
-        url_trigger = "https://pushdeer.com"
-        # 直接發送，設定 2 秒超時，既保證送出成功、又不會拖慢使用者體驗
-        requests.post(url_trigger, data=body_payload, timeout=2.0)
+        url_trigger = "https://api2.pushdeer.com/message/push"
+        threading.Thread(
+            target=requests.post,
+            args=(url_trigger,),
+            kwargs={"data": body_payload, "timeout": 3.0},
+            daemon=True,
+        ).start()
     except Exception as err:
-        print(f"發送 PushDeer 通知失敗: {err}")
+        print(f"發送推播失敗: {err}")
+
 
 # --- 🔐 密碼保護機制 ---
 def check_password():
@@ -40,21 +45,16 @@ def check_password():
     if st.button("確認登入", type="primary", use_container_width=True):
         if user_password == st.secrets["app_password"]:
             st.session_state["password_correct"] = True
-            
-            # 🚀 登入成功遠端通知（同步發送）
-            send_pushdeer_notification(
-                text_title="🔐 SANBAN系統：人員登入成功",
-                desp_content="已有工廠人員通過密碼驗證，成功進入備品快速查扣系統。"
+            send_push_notification(
+                "🔐 SANBAN登入成功",
+                "有人使用正確密碼登入 SANBAN 備品快速查扣系統。",
             )
-            
             st.rerun()
         else:
-            # 🚀 密碼錯誤遠端通知（同步發送）
-            send_pushdeer_notification(
-                text_title="⚠️ SANBAN安全警報：登入密碼錯誤",
-                desp_content="偵測到有人嘗試登入系統，但輸入的密碼錯誤，已被系統攔截！"
+            send_push_notification(
+                "⚠️ SANBAN密碼錯誤",
+                "有人嘗試登入 SANBAN 系統，但輸入的密碼不正確。",
             )
-            
             st.error("❌ 密碼錯誤，請重新輸入！")
     return False
 
@@ -110,11 +110,21 @@ def load_data():
                 st.error(f"讀取雲端資料失敗：{e}")
                 return pd.DataFrame()
     return pd.DataFrame()
+
+# 背景非同步更新
+def bg_update_google(row_num, used_col, new_used):
+    try:
+        gs_client = init_gspread()
+        if gs_client:
+            sheet = gs_client.get_worksheet(0)
+            sheet.update_cell(row_num, used_col, int(new_used))
+    except Exception as e:
+        print(f"背景同步失敗: {e}")
 # --- 核心主程式執行區 ---
 if check_password():
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
 
-    # 初始化全域狀態暫存器
+    # 💡 全域狀態暫存器
     if "selected_row_idx" not in st.session_state:
         st.session_state["selected_row_idx"] = None
     if "selected_part_name" not in st.session_state:
@@ -129,7 +139,7 @@ if check_password():
     with st.spinner("🔄 正在連線雲端資料庫，請稍候..."):
         raw_df = load_data()
 
-    # ✨ 解決 Google 503 救磚按鈕
+    # ✨ 解決 Google 503 導致畫面永久卡死的問題，提供救磚按鈕
     if raw_df.empty:
         st.error("❌ 無法連線至 Google 雲端資料庫 (伺服器暫時忙碌中)")
         st.warning("💡 提示：這通常是 Google 伺服器休眠。請點擊下方按鈕重新嘗試連線。")
@@ -144,7 +154,6 @@ if check_password():
 
         current_df = st.session_state["df_data"]
 
-        # 🔍 篩選介面
         col_filter1, col_filter2 = st.columns(2)
         with col_filter1:
             all_locs = ["所有位置"] + [str(x).strip() for x in current_df["位置"].unique() if str(x).strip()]
@@ -155,7 +164,6 @@ if check_password():
 
         search_keyword = st.text_input("🔍 輸入關鍵字 (可搜部品名稱、型號、廠牌或設備...)", "").strip().lower()
 
-        # 執行過濾
         filtered_df = current_df.copy()
         if selected_loc != "所有位置":
             filtered_df = filtered_df[filtered_df["位置"].str.strip() == selected_loc]
@@ -174,16 +182,10 @@ if check_password():
         else:
             for idx, row in filtered_df.iterrows():
                 row_idx = int(row['行數'])
-                
-                # 乾淨的數字轉型判斷
-                total_qty = int(row["數量"]) if str(row["數量"]).isdigit() else 0
-                used_val = int(row["使用"]) if str(row["開"] if "開" in row else row["使用"]).isdigit() else 0
-                remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else (total_qty - used_val)
-                
+                remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else 0
                 is_zero = remain_val <= 0
-                card_color = "#f8d7da" if is_zero else "#ffffff"
                 
-                # 備品資訊卡片
+                card_color = "#f8d7da" if is_zero else "#ffffff"
                 st.markdown(
                     f"""
                     <div style="background-color:{card_color}; padding:15px; border-radius:10px; 
@@ -193,14 +195,13 @@ if check_password():
                             <b>型號：</b>{row['部品型號']}<br>
                             <b>設備：</b>{row['設備名']} ({row['產線']})<br>
                             <b>廠牌/編號：</b>{row['廠牌']} / {row['編號']}<br>
-                            <b>目前殘數：</b><span style="font-size:1.3rem; font-weight:bold; color:{'#dc3545' if is_zero else '#28a745'}">{remain_val}</span> (總數: {total_qty} | 已用: {used_val})
+                            <b>目前殘數：</b><span style="font-size:1.3rem; font-weight:bold; color:{'#dc3545' if is_zero else '#28a745'}">{remain_val}</span> (總數: {row['數量']} | 已用: {row['使用']})
                         </p>
                     </div>
                     """, 
                     unsafe_allow_html=True
                 )
                 
-                # 領取按鈕操作區
                 if not is_zero:
                     col_input, col_btn = st.columns(2)
                     with col_input:
@@ -211,10 +212,12 @@ if check_password():
                             st.session_state["selected_part_name"] = row['部品名稱']
                             st.session_state["selected_take_amt"] = take_amt
                             st.session_state["selected_remain_val"] = remain_val
-                            st.session_state["selected_current_used"] = used_val
+                            st.session_state["selected_current_used"] = int(row["使用"]) if str(row["使用"]).isdigit() else 0
+                            # 選擇新的扣除項目時，清除上一筆的確認狀態，避免誤觸發。
+                            st.session_state["GLOBAL_FINAL_CHECKBOX_LOCK"] = False
                             st.rerun()
 
-        # 🌟🌟 彈出式領取扣除確認與通知機制 🌟🌟
+        # 🌟🌟 終極安全防當解鎖：全面改用 st.checkbox 原生勾選鎖 🌟🌟
         if st.session_state["selected_row_idx"] is not None:
             st.markdown("---")
             st.markdown(
@@ -230,49 +233,43 @@ if check_password():
             )
             st.write("")
             
-            col_cancel, col_confirm = st.columns(2)
+            confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
             
-            with col_cancel:
-                if st.button("❌ 取消領取", use_container_width=True):
-                    st.session_state["selected_row_idx"] = None
-                    st.rerun()
-                    
-            with col_confirm:
-                if st.button("🔥 確定扣除庫存", type="primary", use_container_width=True):
+            if confirm_check:
+                st.warning("請再次確認：按下下方「確認扣除」後，才會正式扣除庫存；此操作完成後請依實際需求處理退回或更正。")
+                if not st.button("✅ 確認扣除庫存", key="final_deduct_btn", type="primary", use_container_width=True):
+                    st.info("目前尚未扣除庫存。確認內容無誤後，請按下「確認扣除庫存」。")
+                else:
                     p_name = st.session_state['selected_part_name']
                     amt_val = st.session_state['selected_take_amt']
                     r_val = st.session_state["selected_remain_val"]
                     new_remain = r_val - amt_val
-                    
-                    # 🚀 同步發送庫存扣除通知（確保完成不漏信）
-                    send_pushdeer_notification(
-                        text_title=f"🏭 SANBAN領取通知：{p_name}",
-                        desp_content=f"領取數量：{amt_val} 件\n庫存剩餘：{new_remain} 件"
-                    )
 
-                    # 🚀 處理 Google 試算表寫入
+                    # 只有使用者按下第二次確認後，才執行庫存扣除。
                     with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
                         target_row = st.session_state["selected_row_idx"]
                         amt = st.session_state["selected_take_amt"]
                         c_used = st.session_state["selected_current_used"]
                         new_used = c_used + amt
-                        
-                        # A. 立即更新本地端 Streamlit 記憶體數據
+
+                        # 更新記憶體數據
                         st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
                         st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
-                        
-                        # B. 寫入雲端
-                        try:
-                            gs_client = init_gspread()
-                            if gs_client:
-                                sheet = gs_client.get_worksheet(0)
-                                sheet.update_cell(target_row, 9, int(new_used))  # 第 9 欄是「使用」
-                        except Exception as e:
-                            st.error(f"雲端同步失敗（但本地已更新），請稍後手動同步：{e}")
-                        
+
+                        # 背景同步更新雲端 Excel
+                        t = threading.Thread(target=bg_update_google, args=(target_row, 9, new_used), daemon=True)
+                        t.start()
+
+                        # 雲端寫入流程啟動後才通知手機端，避免勾選但尚未確認時誤發通知。
+                        send_push_notification(
+                            f"🏭 SANBAN領取通知：{p_name}",
+                            f"領取數量：{amt_val} 件\\n庫存剩餘：{new_remain} 件",
+                        )
+
                         st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
-                        st.session_state["selected_row_idx"] = None  # 重設選取狀態
-                        time.sleep(0.5)
+                        st.session_state["selected_row_idx"] = None
+                        st.session_state["GLOBAL_FINAL_CHECKBOX_LOCK"] = False
+                        time.sleep(0.8)
                         st.rerun()
 
         st.markdown("---")
