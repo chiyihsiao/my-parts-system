@@ -28,6 +28,37 @@ def check_password():
         else:
             st.error("❌ 密碼錯誤，請重新輸入！")
     return False
+# --- 🔐 密碼保護機制（修改版：密碼錯誤立刻通知手機） ---
+def check_password():
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    if st.session_state["password_correct"]:
+        return True
+
+    st.markdown("<h3 style='text-align: center; color: #28a745; font-weight: bold;'>🔐 SANBAN 系統安全登入</h3>", unsafe_allow_html=True)
+    user_password = st.text_input("🔑 請輸入工廠專屬連線密碼", type="password")
+    
+    if st.button("確認登入", type="primary", use_container_width=True):
+        if user_password == st.secrets["app_password"]:
+            st.session_state["password_correct"] = True
+            st.rerun()
+        else:
+            # 🚨 【新增防盜連線】：密碼打錯，立刻用你測試成功的 POST 格式，在背景通報手機！
+            try:
+                f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
+                body_payload = {
+                    "pushkey": f_key,
+                    "text": "⚠️ 警告：SANBAN系統有人嘗試登入！",
+                    "desp": "警告：網頁端剛剛輸入了錯誤的連線密碼，請注意系統安全。"
+                }
+                url_trigger = "https://pushdeer.com"
+                threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
+            except:
+                pass
+                
+            st.error("❌ 密碼錯誤，請重新輸入！")
+    return False
 
 # 🌟 終極 Base64 機器人直連機制 🌟
 def init_gspread():
