@@ -81,6 +81,7 @@ def load_data():
                 st.error(f"讀取雲端資料失敗：{e}")
                 return pd.DataFrame()
     return pd.DataFrame()
+
 # 背景非同步更新
 def bg_update_google(row_num, used_col, new_used):
     try:
@@ -204,20 +205,23 @@ if check_password():
             confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
             
             if confirm_check:
-                # 🚀 雙重防禦第一步：100% 完美還原你測試成功的寫死金鑰與 POST 連線！
+                # 🚀 雙重防禦第一步：100% 完美模擬你在 PowerShell 測試成功的 POST 格式發送通知！
                 try:
                     p_name = st.session_state['selected_part_name']
                     amt_val = st.session_state['selected_take_amt']
                     r_val = st.session_state["selected_remain_val"]
                     new_remain = r_val - amt_val
                     
+                    # 組合出跟你 PowerShell 測試一模一樣的 Body 資料內容
                     body_payload = {
                         "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",
                         "text": f"🏭 SANBAN領取通知：{p_name}",
                         "desp": f"領取數量：{amt_val} 件\n庫存剩餘：{new_remain} 件"
                     }
                     
-                    url_trigger = "https://pushdeer.com"
+                    # 💡 核心修正：使用 data=body_payload（這就是 Python 對接 PowerShell -Body 的寫法）
+                    # 丟到背景非同步執行，完全不卡網頁速度
+                    url_trigger = "https://api2.pushdeer.com/message/push"
                     threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
                 except Exception as err:
                     print(f"發送推播失敗: {err}")
