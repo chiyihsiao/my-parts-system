@@ -10,6 +10,24 @@ import requests  # 用於發送推播通知
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
 
+# --- 📢 PushDeer 遠端通知通用函式 ---
+def send_pushdeer_notification(text_title, desp_content):
+    """
+    發送 PushDeer 推播通知（採用背景執行緒，完全不卡網頁速度）
+    完美對接 Python 的 data= 格式 (等同於 PowerShell 的 -Body)
+    """
+    try:
+        body_payload = {
+            "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",
+            "text": text_title,
+            "desp": desp_content
+        }
+        url_trigger = "https://pushdeer.com"
+        # 丟到背景非同步執行
+        threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
+    except Exception as err:
+        print(f"背景發送 PushDeer 通知失敗: {err}")
+
 # --- 🔐 密碼保護機制 ---
 def check_password():
     if "password_correct" not in st.session_state:
@@ -24,8 +42,21 @@ def check_password():
     if st.button("確認登入", type="primary", use_container_width=True):
         if user_password == st.secrets["app_password"]:
             st.session_state["password_correct"] = True
+            
+            # 🚀 【追加】 登入成功遠端通知
+            send_pushdeer_notification(
+                text_title="🔐 SANBAN系統：人員登入成功",
+                desp_content="已有工廠人員通過密碼驗證，成功進入備品快速查扣系統。"
+            )
+            
             st.rerun()
         else:
+            # 🚀 【追加】 密碼錯誤遠端通知（安全警報）
+            send_pushdeer_notification(
+                text_title="⚠️ SANBAN安全警報：登入密碼錯誤",
+                desp_content="偵測到有人嘗試登入系統，但輸入的密碼錯誤，已被系統攔截！"
+            )
+            
             st.error("❌ 密碼錯誤，請重新輸入！")
     return False
 
@@ -81,36 +112,14 @@ def load_data():
                 st.error(f"讀取雲端資料失敗：{e}")
                 return pd.DataFrame()
     return pd.DataFrame()
-
-# 背景非同步更新
-def bg_update_google(row_num, used_col, new_used):
-    try:
-        gs_client = init_gspread()
-        if gs_client:
-            sheet = gs_client.get_worksheet(0)
-            sheet.update_cell(row_num, used_col, int(new_used))
-    except Exception as e:
-        print(f"背景同步失敗: {e}")
 # --- 核心主程式執行區 ---
 if check_password():
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
 
-    # 💡 全域狀態暫存器
-    if "selected_row_idx" not in st.session_state:
-        st.session_state["selected_row_idx"] = None
-    if "selected_part_name" not in st.session_state:
-        st.session_state["selected_part_name"] = ""
-    if "selected_take_amt" not in st.session_state:
-        st.session_state["selected_take_amt"] = 0
-    if "selected_remain_val" not in st.session_state:
-        st.session_state["selected_remain_val"] = 0
-    if "selected_current_used" not in st.session_state:
-        st.session_state["selected_current_used"] = 0
-
     with st.spinner("🔄 正在連線雲端資料庫，請稍候..."):
         raw_df = load_data()
 
-    # ✨ 解決 Google 503 導致畫面永久卡死的問題，提供救磚按鈕
+    # ✨ 解決 Google 503 救磚按鈕
     if raw_df.empty:
         st.error("❌ 無法連線至 Google 雲端資料庫 (伺服器暫時忙碌中)")
         st.warning("💡 提示：這通常是 Google 伺服器休眠。請點擊下方按鈕重新嘗試連線。")
@@ -125,6 +134,7 @@ if check_password():
 
         current_df = st.session_state["df_data"]
 
+        # 🔍 篩選介面
         col_filter1, col_filter2 = st.columns(2)
         with col_filter1:
             all_locs = ["所有位置"] + [str(x).strip() for x in current_df["位置"].unique() if str(x).strip()]
@@ -135,6 +145,7 @@ if check_password():
 
         search_keyword = st.text_input("🔍 輸入關鍵字 (可搜部品名稱、型號、廠牌或設備...)", "").strip().lower()
 
+        # 執行過濾
         filtered_df = current_df.copy()
         if selected_loc != "所有位置":
             filtered_df = filtered_df[filtered_df["位置"].str.strip() == selected_loc]
@@ -153,10 +164,15 @@ if check_password():
         else:
             for idx, row in filtered_df.iterrows():
                 row_idx = int(row['行數'])
-                remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else 0
-                is_zero = remain_val <= 0
                 
+                total_qty = int(row["數量"]) if str(row["數量"]).isdigit() else 0
+                used_val = int(row["使用"]) if str(row["ប្រើ"]).isdigit() or str(row["使用"]).isdigit() else 0
+                remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else (total_qty - used_val)
+                
+                is_zero = remain_val <= 0
                 card_color = "#f8d7da" if is_zero else "#ffffff"
+                
+                # 備品資訊卡片
                 st.markdown(
                     f"""
                     <div style="background-color:{card_color}; padding:15px; border-radius:10px; 
@@ -166,13 +182,14 @@ if check_password():
                             <b>型號：</b>{row['部品型號']}<br>
                             <b>設備：</b>{row['設備名']} ({row['產線']})<br>
                             <b>廠牌/編號：</b>{row['廠牌']} / {row['編號']}<br>
-                            <b>目前殘數：</b><span style="font-size:1.3rem; font-weight:bold; color:{'#dc3545' if is_zero else '#28a745'}">{remain_val}</span> (總數: {row['數量']} | 已用: {row['使用']})
+                            <b>目前殘數：</b><span style="font-size:1.3rem; font-weight:bold; color:{'#dc3545' if is_zero else '#28a745'}">{remain_val}</span> (總數: {total_qty} | 已用: {used_val})
                         </p>
                     </div>
                     """, 
                     unsafe_allow_html=True
                 )
                 
+                # 領取按鈕操作區
                 if not is_zero:
                     col_input, col_btn = st.columns(2)
                     with col_input:
@@ -183,10 +200,10 @@ if check_password():
                             st.session_state["selected_part_name"] = row['部品名稱']
                             st.session_state["selected_take_amt"] = take_amt
                             st.session_state["selected_remain_val"] = remain_val
-                            st.session_state["selected_current_used"] = int(row["使用"]) if str(row["使用"]).isdigit() else 0
+                            st.session_state["selected_current_used"] = used_val
                             st.rerun()
 
-        # 🌟🌟 終極安全防當解鎖：全面改用 st.checkbox 原生勾選鎖 🌟🌟
+        # 🌟🌟 終極安全防當解鎖：彈出式領取扣除確認與非同步機制 🌟🌟
         if st.session_state["selected_row_idx"] is not None:
             st.markdown("---")
             st.markdown(
@@ -202,50 +219,50 @@ if check_password():
             )
             st.write("")
             
-            confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
+            col_cancel, col_confirm = st.columns(2)
             
-            if confirm_check:
-                # 🚀 雙重防禦第一步：100% 完美模擬你在 PowerShell 測試成功的 POST 格式發送通知！
-                try:
+            with col_cancel:
+                if st.button("❌ 取消領取", use_container_width=True):
+                    st.session_state["selected_row_idx"] = None
+                    st.rerun()
+                    
+            with col_confirm:
+                if st.button("🔥 確定扣除庫存", type="primary", use_container_width=True):
                     p_name = st.session_state['selected_part_name']
                     amt_val = st.session_state['selected_take_amt']
                     r_val = st.session_state["selected_remain_val"]
                     new_remain = r_val - amt_val
                     
-                    # 組合出跟你 PowerShell 測試一模一樣的 Body 資料內容
-                    body_payload = {
-                        "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",
-                        "text": f"🏭 SANBAN領取通知：{p_name}",
-                        "desp": f"領取數量：{amt_val} 件\n庫存剩餘：{new_remain} 件"
-                    }
-                    
-                    # 💡 核心修正：使用 data=body_payload（這就是 Python 對接 PowerShell -Body 的寫法）
-                    # 丟到背景非同步執行，完全不卡網頁速度
-                    url_trigger = "https://api2.pushdeer.com/message/push"
-                    threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
-                except Exception as err:
-                    print(f"發送推播失敗: {err}")
+                    # 🚀 雙重防禦第一步：發送庫存扣除通知（呼叫通用函式）
+                    send_pushdeer_notification(
+                        text_title=f"🏭 SANBAN領取通知：{p_name}",
+                        desp_content=f"領取數量：{amt_val} 件\n庫存剩餘：{new_remain} 件"
+                    )
 
-                # 🚀 雙重防禦第二步：通知送出後，接著處理你原本的 Google 試算表寫入
-                with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
-                    target_row = st.session_state["selected_row_idx"]
-                    amt = st.session_state["selected_take_amt"]
-                    c_used = st.session_state["selected_current_used"]
-                    
-                    new_used = c_used + amt
-                    
-                    # 更新記憶體數據
-                    st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
-                    st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
-                    
-                    # 背景同步更新雲端 Excel
-                    t = threading.Thread(target=bg_update_google, args=(target_row, 9, new_used))
-                    t.start()
-                    
-                    st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
-                    st.session_state["selected_row_idx"] = None # 重設回歸
-                    time.sleep(0.8)
-                    st.rerun()
+                    # 🚀 雙重防禦第二步：處理 Google 試算表寫入
+                    with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
+                        target_row = st.session_state["selected_row_idx"]
+                        amt = st.session_state["selected_take_amt"]
+                        c_used = st.session_state["selected_current_used"]
+                        new_used = c_used + amt
+                        
+                        # A. 立即更新本地端 Streamlit 記憶體數據
+                        st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
+                        st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
+                        
+                        # B. 寫入雲端（由主執行緒進行，安全不崩潰）
+                        try:
+                            gs_client = init_gspread()
+                            if gs_client:
+                                sheet = gs_client.get_worksheet(0)
+                                sheet.update_cell(target_row, 9, int(new_used))  # 第 9 欄是「使用」
+                        except Exception as e:
+                            st.error(f"雲端同步失敗（但本地已更新），請稍後手動同步：{e}")
+                        
+                        st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
+                        st.session_state["selected_row_idx"] = None  # 重設選取狀態
+                        time.sleep(0.5)
+                        st.rerun()
 
         st.markdown("---")
         if st.button("🔄 手動同步雲端最新數據", key="manual_sync_btn", use_container_width=True):
