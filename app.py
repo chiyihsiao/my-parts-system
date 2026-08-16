@@ -10,8 +10,11 @@ import requests  # 用於發送推播通知
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
 
-# --- 🔐 密碼保護機制 ---
+# --- 🔐 密碼保護機制（修正版：確保工具引入，密碼錯誤立刻通報） ---
 def check_password():
+    import requests  # 💡 確保函式內部第一時間載入連線工具
+    import threading # 💡 確保函式內部第一時間載入背景工具
+    
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
 
@@ -26,36 +29,20 @@ def check_password():
             st.session_state["password_correct"] = True
             st.rerun()
         else:
-            st.error("❌ 密碼錯誤，請重新輸入！")
-    return False
-# --- 🔐 密碼保護機制（修改版：密碼錯誤立刻通知手機） ---
-def check_password():
-    if "password_correct" not in st.session_state:
-        st.session_state["password_correct"] = False
-
-    if st.session_state["password_correct"]:
-        return True
-
-    st.markdown("<h3 style='text-align: center; color: #28a745; font-weight: bold;'>🔐 SANBAN 系統安全登入</h3>", unsafe_allow_html=True)
-    user_password = st.text_input("🔑 請輸入工廠專屬連線密碼", type="password")
-    
-    if st.button("確認登入", type="primary", use_container_width=True):
-        if user_password == st.secrets["app_password"]:
-            st.session_state["password_correct"] = True
-            st.rerun()
-        else:
-            # 🚨 【新增防盜連線】：密碼打錯，立刻用你測試成功的 POST 格式，在背景通報手機！
+            # 🚨 密碼打錯，立刻用你測試成功的 POST 格式強行外發通報！
             try:
                 f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
                 body_payload = {
                     "pushkey": f_key,
                     "text": "⚠️ 警告：SANBAN系統有人嘗試登入！",
-                    "desp": "警告：網頁端剛剛輸入了錯誤的連線密碼，請注意系統安全。"
+                    "desp": "警告：網頁端剛剛有人輸入了錯誤的連線密碼，請注意密碼是否外洩。"
                 }
                 url_trigger = "https://pushdeer.com"
-                threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
-            except:
-                pass
+                
+                # 這次不走複雜呼叫，直接在主線程丟出 POST 包裹，確保網頁刷新前一定發得出去
+                requests.post(url_trigger, data=body_payload, timeout=3.0)
+            except Exception as login_err:
+                print(f"登入防盜通知發送失敗: {login_err}")
                 
             st.error("❌ 密碼錯誤，請重新輸入！")
     return False
@@ -236,26 +223,26 @@ if check_password():
             confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
             
             if confirm_check:
-                # 🚀 雙重防禦第一步：100% 完美模擬你在 PowerShell 測試成功的 POST 格式發送通知！
+                # 🚀 雙重防禦第一步：一打勾，立刻模擬 PowerShell 測試成功的 POST 格式發送通知！
                 try:
+                    f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
                     p_name = st.session_state['selected_part_name']
                     amt_val = st.session_state['selected_take_amt']
                     r_val = st.session_state["selected_remain_val"]
                     new_remain = r_val - amt_val
                     
-                    # 組合出跟你 PowerShell 測試一模一樣的 Body 資料內容
+                    # 組合出標準的 Data 封包格式
                     body_payload = {
-                        "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",
+                        "pushkey": f_key,
                         "text": f"🏭 SANBAN領取通知：{p_name}",
                         "desp": f"領取數量：{amt_val} 件\n庫存剩餘：{new_remain} 件"
                     }
                     
-                    # 💡 核心修正：使用 data=body_payload（這就是 Python 對接 PowerShell -Body 的寫法）
-                    # 丟到背景非同步執行，完全不卡網頁速度
-                    url_trigger = "https://api2.pushdeer.com/message/push"
+                    # 使用跟 PowerShell 底層 100% 一模一樣的傳輸管道發送
+                    url_trigger = "https://pushdeer.com"
                     threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
                 except Exception as err:
-                    print(f"發送推播失敗: {err}")
+                    print(f"發送領取推播失敗: {err}")
 
                 # 🚀 雙重防禦第二步：通知送出後，接著處理你原本的 Google 試算表寫入
                 with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
