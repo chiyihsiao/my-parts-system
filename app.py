@@ -83,7 +83,7 @@ def bg_update_google(row_num, used_col, new_used):
 def send_easy_notification(part_name, take_amt, remain_val):
     try:
         # 🔑 請把下面引號內的 Key，換成你手機 Push Deer APP 內取得的專屬 PushKey
-        my_key = "PDUxxxxxxxxxxxxxxxxxxxx" 
+        my_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O" 
         
         # 組合推播訊息內容
         text = f"🏭 SANBAN領取通知：{part_name} 已被領取 {take_amt} 件，庫存剩餘 {remain_val} 件。"
