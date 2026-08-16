@@ -10,7 +10,7 @@ import requests  # 用於發送推播通知
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
 
-# --- 🔐 密碼保護機制 ---
+# --- 🔐 密碼保護機制（修正版：100% 複製你領取成功的寫死金鑰與 POST Threading 格式） ---
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
@@ -23,9 +23,35 @@ def check_password():
     
     if st.button("確認登入", type="primary", use_container_width=True):
         if user_password == st.secrets["app_password"]:
+            
+            # 🎯 【追加 1】：有人登入成功通知（格式與你領取通知 100% 相同，寫死金鑰）
+            try:
+                body_payload = {
+                    "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",  # 👈 直接寫死保證通
+                    "text": "🔑 SANBAN系統：有人登入成功！",
+                    "desp": "安全提示：剛剛有人成功輸入密碼並進入了備品管理前台。"
+                }
+                url_trigger = "https://pushdeer.com"
+                threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
+            except:
+                pass
+                
             st.session_state["password_correct"] = True
             st.rerun()
         else:
+            
+            # 🚨 【追加 2】：密碼輸入錯誤警報（格式與你領取通知 100% 相同，寫死金鑰）
+            try:
+                body_payload = {
+                    "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",  # 👈 直接寫死保證通
+                    "text": "⚠️ 警告：SANBAN系統有人密碼輸入錯誤！",
+                    "desp": "安全警報：登入頁面剛剛有人輸入了錯誤密碼，請注意密碼安全。"
+                }
+                url_trigger = "https://pushdeer.com"
+                threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
+            except:
+                pass
+                
             st.error("❌ 密碼錯誤，請重新輸入！")
     return False
 
@@ -221,7 +247,7 @@ if check_password():
                     
                     # 💡 核心修正：使用 data=body_payload（這就是 Python 對接 PowerShell -Body 的寫法）
                     # 丟到背景非同步執行，完全不卡網頁速度
-                    url_trigger = "https://api2.pushdeer.com/message/push"
+                    url_trigger = "https://pushdeer.com"
                     threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
                 except Exception as err:
                     print(f"發送推播失敗: {err}")
