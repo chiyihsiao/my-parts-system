@@ -10,7 +10,7 @@ import requests  # 用於發送推播通知
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
 
-# --- 🔐 密碼保護機制（修正版：100% 複製你領取成功的寫死金鑰與 POST Threading 格式） ---
+# --- 🔐 密碼保護機制 ---
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
@@ -23,35 +23,9 @@ def check_password():
     
     if st.button("確認登入", type="primary", use_container_width=True):
         if user_password == st.secrets["app_password"]:
-            
-            # 🎯 【追加 1】：有人登入成功通知（格式與你領取通知 100% 相同，寫死金鑰）
-            try:
-                body_payload = {
-                    "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",  # 👈 直接寫死保證通
-                    "text": "🔑 SANBAN系統：有人登入成功！",
-                    "desp": "安全提示：剛剛有人成功輸入密碼並進入了備品管理前台。"
-                }
-                url_trigger = "https://pushdeer.com"
-                threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
-            except:
-                pass
-                
             st.session_state["password_correct"] = True
             st.rerun()
         else:
-            
-            # 🚨 【追加 2】：密碼輸入錯誤警報（格式與你領取通知 100% 相同，寫死金鑰）
-            try:
-                body_payload = {
-                    "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",  # 👈 直接寫死保證通
-                    "text": "⚠️ 警告：SANBAN系統有人密碼輸入錯誤！",
-                    "desp": "安全警報：登入頁面剛剛有人輸入了錯誤密碼，請注意密碼安全。"
-                }
-                url_trigger = "https://pushdeer.com"
-                threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
-            except:
-                pass
-                
             st.error("❌ 密碼錯誤，請重新輸入！")
     return False
 
@@ -107,7 +81,6 @@ def load_data():
                 st.error(f"讀取雲端資料失敗：{e}")
                 return pd.DataFrame()
     return pd.DataFrame()
-
 # 背景非同步更新
 def bg_update_google(row_num, used_col, new_used):
     try:
@@ -231,22 +204,19 @@ if check_password():
             confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
             
             if confirm_check:
-                # 🚀 雙重防禦第一步：100% 完美模擬你在 PowerShell 測試成功的 POST 格式發送通知！
+                # 🚀 雙重防禦第一步：100% 完美還原你測試成功的寫死金鑰與 POST 連線！
                 try:
                     p_name = st.session_state['selected_part_name']
                     amt_val = st.session_state['selected_take_amt']
                     r_val = st.session_state["selected_remain_val"]
                     new_remain = r_val - amt_val
                     
-                    # 組合出跟你 PowerShell 測試一模一樣的 Body 資料內容
                     body_payload = {
                         "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",
                         "text": f"🏭 SANBAN領取通知：{p_name}",
                         "desp": f"領取數量：{amt_val} 件\n庫存剩餘：{new_remain} 件"
                     }
                     
-                    # 💡 核心修正：使用 data=body_payload（這就是 Python 對接 PowerShell -Body 的寫法）
-                    # 丟到背景非同步執行，完全不卡網頁速度
                     url_trigger = "https://pushdeer.com"
                     threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
                 except Exception as err:
