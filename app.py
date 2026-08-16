@@ -83,7 +83,7 @@ def bg_update_google(row_num, used_col, new_used):
 if check_password():
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
 
-    # 💡 全域狀態暫存器
+    # 💡 全域狀態暫存器 (保留原本的)
     if "selected_row_idx" not in st.session_state:
         st.session_state["selected_row_idx"] = None
     if "selected_part_name" not in st.session_state:
@@ -97,6 +97,27 @@ if check_password():
 
     with st.spinner("🔄 正在連線雲端資料庫，請稍候..."):
         raw_df = load_data()
+
+    # ✨ 這裡修改：解決 Google 503 導致空資料卡死的問題
+    if raw_df.empty:
+        st.error("❌ 無法連線至 Google 雲端資料庫 (伺服器忙碌中或憑證失效)")
+        st.warning("💡 提示：這通常是 Google 伺服器暫時休眠。您可以嘗試點擊下方按鈕重新喚醒連線。")
+        
+        # 建立一個救磚按鈕
+        if st.button("🔌 嘗試重新喚醒並同步雲端數據", type="primary", use_container_width=True):
+            st.cache_data.clear() # 清除快取
+            if "df_data" in st.session_state:
+                del st.session_state["df_data"]
+            st.rerun() # 重新整理網頁再次讀取
+            
+    else:
+        # --- 以下完全接續你原本的 code (if "df_data" not in st.session_state...) ---
+        if "df_data" not in st.session_state:
+            st.session_state["df_data"] = raw_df.copy()
+
+        current_df = st.session_state["df_data"]
+        # ... 後續過濾、顯示卡片、GLOBAL_FINAL_CHECKBOX_LOCK 等程式碼均不變 ...
+
 
     if raw_df.empty:
         st.warning("資料庫載入中，正在從您的 Google 試算表即時同步...")
