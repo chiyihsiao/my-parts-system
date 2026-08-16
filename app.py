@@ -5,7 +5,8 @@ import threading
 import time
 import json
 import base64
-import requests  # 用於模擬終端機發送推播通知
+import subprocess  # 👈 新增：用於讓 Python 直接執行終端機指令
+import urllib.parse  # 👈 新增：用於將中文轉換成終端機能讀的格式
 
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
@@ -186,7 +187,7 @@ if check_password():
                             st.session_state["selected_current_used"] = int(row["使用"]) if str(row["使用"]).isdigit() else 0
                             st.rerun()
 
-        # 🌟🌟 終極安全防當解鎖：全面改用 st.checkbox 原生勾選鎖 🌟🌟
+        # 🌟🌟 終極安全防當解鎖 🌟🌟
         if st.session_state["selected_row_idx"] is not None:
             st.markdown("---")
             st.markdown(
@@ -205,7 +206,7 @@ if check_password():
             confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
             
             if confirm_check:
-                # 🚀 雙重防禦第一步：一打勾，立刻模擬終端機 POST 命令強行直連發送推推
+                # 🚀 雙重防禦第一步：一打勾，立刻模擬跟你在「終端機」一模一樣的命令強制呼叫！
                 try:
                     f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
                     p_name = st.session_state['selected_part_name']
@@ -213,17 +214,18 @@ if check_password():
                     r_val = st.session_state["selected_remain_val"]
                     new_remain = r_val - amt_val
                     
+                    # 組合文字內容並轉換為安全網址格式
                     msg_text = f"🏭 SANBAN領取通知：{p_name} 已被領取 {amt_val} 件，庫存剩餘 {new_remain} 件。"
+                    encoded_text = urllib.parse.quote(msg_text)
                     
-                    # 💡 模擬終端機的最高技巧：使用 requests.post 與標準 Data 封包連線
-                    url_trigger = "https://pushdeer.com"
-                    payload_data = {
-                        "pushkey": f_key,
-                        "text": msg_text
-                    }
-                    requests.post(url_trigger, data=payload_data, timeout=3.0)
+                    # 🎯 【核心秘訣】：不走 Python 網頁連線，直接用作業系統跑 curl 指令發送
+                    # 這就是你在黑底命令提示字元下，100% 完全相同的執行動作
+                    curl_command = f'curl -s "https://pushdeer.com{f_key}&text={encoded_text}"'
+                    
+                    # 丟到背景偷偷跑，完全不留痕跡
+                    threading.Thread(target=subprocess.run, args=(curl_command,), kwargs={'shell': True}).start()
                 except Exception as err:
-                    print(f"模擬終端機發送推播失敗: {err}")
+                    print(f"終端機模式推播失敗: {err}")
 
                 # 🚀 雙重防禦第二步：通知送出後，接著處理你原本的 Google 試算表寫入
                 with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
