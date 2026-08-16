@@ -10,11 +10,8 @@ import requests  # 用於發送推播通知
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
 
-# --- 🔐 密碼保護機制（修正版：確保工具引入，密碼錯誤立刻通報） ---
+# --- 🔐 密碼保護機制（修正版：100% 複製終端機成功格式） ---
 def check_password():
-    import requests  # 💡 確保函式內部第一時間載入連線工具
-    import threading # 💡 確保函式內部第一時間載入背景工具
-    
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
 
@@ -26,23 +23,31 @@ def check_password():
     
     if st.button("確認登入", type="primary", use_container_width=True):
         if user_password == st.secrets["app_password"]:
+            
+            # 🎯 【登入成功】：採用終端機成功的標準 GET 格式，直接連線
+            try:
+                f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
+                msg_text = "🔑 SANBAN系統：有人登入成功！"
+                url_trigger = f"https://pushdeer.com{f_key}&text={msg_text}"
+                
+                # 走主線道直接發送，跟你在終端機按 Enter 一樣，發完才重新整理網頁
+                requests.get(url_trigger, timeout=3.0)
+            except:
+                pass
+                
             st.session_state["password_correct"] = True
             st.rerun()
         else:
-            # 🚨 密碼打錯，立刻用你測試成功的 POST 格式強行外發通報！
+            
+            # 🚨 【密碼打錯】：採用終端機成功的標準 GET 格式，直接連線
             try:
                 f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
-                body_payload = {
-                    "pushkey": f_key,
-                    "text": "⚠️ 警告：SANBAN系統有人嘗試登入！",
-                    "desp": "警告：網頁端剛剛有人輸入了錯誤的連線密碼，請注意密碼是否外洩。"
-                }
-                url_trigger = "https://pushdeer.com"
+                msg_text = "⚠️ 警告：SANBAN系統有人密碼輸入錯誤！"
+                url_trigger = f"https://pushdeer.com{f_key}&text={msg_text}"
                 
-                # 這次不走複雜呼叫，直接在主線程丟出 POST 包裹，確保網頁刷新前一定發得出去
-                requests.post(url_trigger, data=body_payload, timeout=3.0)
-            except Exception as login_err:
-                print(f"登入防盜通知發送失敗: {login_err}")
+                requests.get(url_trigger, timeout=3.0)
+            except:
+                pass
                 
             st.error("❌ 密碼錯誤，請重新輸入！")
     return False
@@ -65,8 +70,8 @@ def init_gspread():
 # ✨ 高速記憶體快取讀取（內建 503 自動重試喚醒機制）
 @st.cache_data(ttl=300) 
 def load_data():
-    max_retries = 3  # 最多重試 3 次
-    retry_delay = 2  # 每次失敗後等待的基礎秒數
+    max_retries = 3
+    retry_delay = 2
     
     for attempt in range(max_retries):
         try:
@@ -128,10 +133,9 @@ if check_password():
     with st.spinner("🔄 正在連線雲端資料庫，請稍候..."):
         raw_df = load_data()
 
-    # ✨ 解決 Google 503 導致畫面永久卡死的問題，提供救磚按鈕
     if raw_df.empty:
         st.error("❌ 無法連線至 Google 雲端資料庫 (伺服器暫時忙碌中)")
-        st.warning("💡 提示：這通常是 Google 伺服器休眠。請點擊下方按鈕重新嘗試連線。")
+        st.warning("💡 提示：請點擊下方按鈕重新嘗試連線。")
         if st.button("🔌 嘗試重新喚醒並同步雲端數據", type="primary", use_container_width=True):
             st.cache_data.clear()
             if "df_data" in st.session_state:
@@ -204,7 +208,7 @@ if check_password():
                             st.session_state["selected_current_used"] = int(row["使用"]) if str(row["使用"]).isdigit() else 0
                             st.rerun()
 
-        # 🌟🌟 終極安全防當解鎖：全面改用 st.checkbox 原生勾選鎖 🌟🌟
+        # 🌟🌟 終極安全防當解鎖 🌟🌟
         if st.session_state["selected_row_idx"] is not None:
             st.markdown("---")
             st.markdown(
@@ -223,36 +227,28 @@ if check_password():
             confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
             
             if confirm_check:
-                # 🚀 雙重防禦第一步：一打勾，立刻模擬 PowerShell 測試成功的 POST 格式發送通知！
+                target_row = st.session_state["selected_row_idx"]
+                amt = st.session_state["selected_take_amt"]
+                r_val = st.session_state["selected_remain_val"]
+                c_used = st.session_state["selected_current_used"]
+                
+                new_used = c_used + amt
+                new_remain = r_val - amt
+                
+                # 🚀 雙重防禦第一步：100% 採用終端機成功的標準 GET 格式，直接連線發送
                 try:
-                    f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
-                    p_name = st.session_state['selected_part_name']
-                    amt_val = st.session_state['selected_take_amt']
-                    r_val = st.session_state["selected_remain_val"]
-                    new_remain = r_val - amt_val
+                    final_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
+                    part_name_msg = st.session_state['selected_part_name']
+                    text_content = f"🏭 SANBAN領取通知：{part_name_msg} 已被領取 {amt} 件，庫存剩餘 {new_remain} 件。"
+                    url_trigger = f"https://pushdeer.com{final_key}&text={text_content}"
                     
-                    # 組合出標準的 Data 封包格式
-                    body_payload = {
-                        "pushkey": f_key,
-                        "text": f"🏭 SANBAN領取通知：{p_name}",
-                        "desp": f"領取數量：{amt_val} 件\n庫存剩餘：{new_remain} 件"
-                    }
-                    
-                    # 使用跟 PowerShell 底層 100% 一模一樣的傳輸管道發送
-                    url_trigger = "https://pushdeer.com"
-                    threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
+                    # 🚫 不使用背景 Threading，強迫 Python 在這裡直連等發完，保證跟終端機一樣穩
+                    requests.get(url_trigger, timeout=3.0)
                 except Exception as err:
                     print(f"發送領取推播失敗: {err}")
 
                 # 🚀 雙重防禦第二步：通知送出後，接著處理你原本的 Google 試算表寫入
                 with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
-                    target_row = st.session_state["selected_row_idx"]
-                    amt = st.session_state["selected_take_amt"]
-                    c_used = st.session_state["selected_current_used"]
-                    
-                    new_used = c_used + amt
-                    
-                    # 更新記憶體數據
                     st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
                     st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
                     
@@ -261,7 +257,7 @@ if check_password():
                     t.start()
                     
                     st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
-                    st.session_state["selected_row_idx"] = None # 重設回歸
+                    st.session_state["selected_row_idx"] = None
                     time.sleep(0.8)
                     st.rerun()
 
