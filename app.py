@@ -179,6 +179,67 @@ if check_password():
                 filtered_df["廠牌"].str.lower().str.contains(search_keyword)
             ]
 
+        st.caption(f"🔎 找到 {len(filtered_df)} 筆符合的備品")
+
+        # 將確認區塊放在結果清單之前，避免資料很多時必須滑到頁面最下方。
+        if st.session_state["selected_row_idx"] is not None:
+            st.markdown("---")
+            st.markdown(
+                f"""
+                <div style="background-color:#fff3cd; padding:15px; border-radius:10px; border-left: 5px solid #ffc107;">
+                    <h5 style="margin:0; color:#856404; font-weight:bold;">⚠️ 【領取扣除確認】</h5>
+                    <p style="margin:5px 0; color:#856404;">
+                        確定要從庫存扣除 <b>{st.session_state['selected_part_name']}</b> 數量 <b>{st.session_state['selected_take_amt']}</b> 件嗎？
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            confirm_key = f"GLOBAL_FINAL_CHECKBOX_LOCK_{st.session_state['deduct_confirm_version']}"
+            confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤", key=confirm_key)
+            confirm_col, cancel_col = st.columns(2)
+            with confirm_col:
+                final_confirm_clicked = st.button("✅ 確認扣除庫存", key="final_deduct_btn", type="primary", use_container_width=True)
+            with cancel_col:
+                cancel_clicked = st.button("↩️ 取消此次領用", key="cancel_deduct_btn", use_container_width=True)
+
+            if cancel_clicked:
+                st.session_state["selected_row_idx"] = None
+                st.session_state["deduct_confirm_version"] += 1
+                st.rerun()
+
+            if final_confirm_clicked and not confirm_check:
+                st.warning("請先勾選確認部品名稱與數量，才能執行扣除。")
+            elif final_confirm_clicked and confirm_check:
+                st.warning("正在執行扣除，請勿重複點擊。")
+                p_name = st.session_state['selected_part_name']
+                amt_val = st.session_state['selected_take_amt']
+                r_val = st.session_state["selected_remain_val"]
+                new_remain = r_val - amt_val
+
+                with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
+                    target_row = st.session_state["selected_row_idx"]
+                    amt = st.session_state["selected_take_amt"]
+                    c_used = st.session_state["selected_current_used"]
+                    new_used = c_used + amt
+
+                    st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
+                    st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
+
+                    t = threading.Thread(target=bg_update_google, args=(target_row, 9, new_used), daemon=True)
+                    t.start()
+
+                    send_push_notification(
+                        f"🏭 SANBAN領取通知：{p_name}",
+                        f"領取數量：{amt_val} 件\\n庫存剩餘：{new_remain} 件",
+                    )
+
+                    st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
+                    st.session_state["selected_row_idx"] = None
+                    st.session_state["deduct_confirm_version"] += 1
+                    time.sleep(0.8)
+                    st.rerun()
+
         if filtered_df.empty:
             st.info("沒有找到符合的備品 ❌")
         else:
@@ -219,62 +280,6 @@ if check_password():
                             st.session_state["deduct_confirm_version"] += 1
                             st.rerun()
 
-        # 🌟🌟 終極安全防當解鎖：全面改用 st.checkbox 原生勾選鎖 🌟🌟
-        if st.session_state["selected_row_idx"] is not None:
-            st.markdown("---")
-            st.markdown(
-                f"""
-                <div style="background-color:#fff3cd; padding:15px; border-radius:10px; border-left: 5px solid #ffc107;">
-                    <h5 style="margin:0; color:#856404; font-weight:bold;">⚠️ 【領取扣除確認】</h5>
-                    <p style="margin:5px 0; color:#856404;">
-                        確定要從庫存扣除 <b>{st.session_state['selected_part_name']}</b> 數量 <b>{st.session_state['selected_take_amt']}</b> 件嗎？
-                    </p>
-                </div>
-                """, 
-                unsafe_allow_html=True
-            )
-            st.write("")
-            
-            confirm_key = f"GLOBAL_FINAL_CHECKBOX_LOCK_{st.session_state['deduct_confirm_version']}"
-            confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key=confirm_key)
-            
-            if confirm_check:
-                st.warning("請再次確認：按下下方「確認扣除」後，才會正式扣除庫存；此操作完成後請依實際需求處理退回或更正。")
-                if not st.button("✅ 確認扣除庫存", key="final_deduct_btn", type="primary", use_container_width=True):
-                    st.info("目前尚未扣除庫存。確認內容無誤後，請按下「確認扣除庫存」。")
-                else:
-                    p_name = st.session_state['selected_part_name']
-                    amt_val = st.session_state['selected_take_amt']
-                    r_val = st.session_state["selected_remain_val"]
-                    new_remain = r_val - amt_val
-
-                    # 只有使用者按下第二次確認後，才執行庫存扣除。
-                    with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
-                        target_row = st.session_state["selected_row_idx"]
-                        amt = st.session_state["selected_take_amt"]
-                        c_used = st.session_state["selected_current_used"]
-                        new_used = c_used + amt
-
-                        # 更新記憶體數據
-                        st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
-                        st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
-
-                        # 背景同步更新雲端 Excel
-                        t = threading.Thread(target=bg_update_google, args=(target_row, 9, new_used), daemon=True)
-                        t.start()
-
-                        # 雲端寫入流程啟動後才通知手機端，避免勾選但尚未確認時誤發通知。
-                        send_push_notification(
-                            f"🏭 SANBAN領取通知：{p_name}",
-                            f"領取數量：{amt_val} 件\\n庫存剩餘：{new_remain} 件",
-                        )
-
-                        st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
-                        st.session_state["selected_row_idx"] = None
-                        # 下次選取項目時會使用新的 checkbox key，不直接改寫 widget 狀態。
-                        st.session_state["deduct_confirm_version"] += 1
-                        time.sleep(0.8)
-                        st.rerun()
 
         st.markdown("---")
         if st.button("🔄 手動同步雲端最新數據", key="manual_sync_btn", use_container_width=True):
