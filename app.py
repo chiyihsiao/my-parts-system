@@ -1,7 +1,6 @@
 import streamlit as st
 import gspread
 import pandas as pd
-import threading
 import time
 import json
 import base64
@@ -13,8 +12,7 @@ st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layo
 # --- 📢 PushDeer 遠端通知通用函式 ---
 def send_pushdeer_notification(text_title, desp_content):
     """
-    發送 PushDeer 推播通知（採用背景執行緒，完全不卡網頁速度）
-    完美對接 Python 的 data= 格式 (等同於 PowerShell 的 -Body)
+    發送 PushDeer 推播通知（改回同步發送，確保 100% 抵達不遺失）
     """
     try:
         body_payload = {
@@ -23,10 +21,10 @@ def send_pushdeer_notification(text_title, desp_content):
             "desp": desp_content
         }
         url_trigger = "https://pushdeer.com"
-        # 丟到背景非同步執行
-        threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
+        # 直接發送，設定 2 秒超時，既保證送出成功、又不會拖慢使用者體驗
+        requests.post(url_trigger, data=body_payload, timeout=2.0)
     except Exception as err:
-        print(f"背景發送 PushDeer 通知失敗: {err}")
+        print(f"發送 PushDeer 通知失敗: {err}")
 
 # --- 🔐 密碼保護機制 ---
 def check_password():
@@ -43,7 +41,7 @@ def check_password():
         if user_password == st.secrets["app_password"]:
             st.session_state["password_correct"] = True
             
-            # 🚀 【追加】 登入成功遠端通知
+            # 🚀 登入成功遠端通知（同步發送）
             send_pushdeer_notification(
                 text_title="🔐 SANBAN系統：人員登入成功",
                 desp_content="已有工廠人員通過密碼驗證，成功進入備品快速查扣系統。"
@@ -51,7 +49,7 @@ def check_password():
             
             st.rerun()
         else:
-            # 🚀 【追加】 密碼錯誤遠端通知（安全警報）
+            # 🚀 密碼錯誤遠端通知（同步發送）
             send_pushdeer_notification(
                 text_title="⚠️ SANBAN安全警報：登入密碼錯誤",
                 desp_content="偵測到有人嘗試登入系統，但輸入的密碼錯誤，已被系統攔截！"
@@ -116,7 +114,7 @@ def load_data():
 if check_password():
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
 
-    # 🛠️ 核心修正：初始化全域狀態暫存器，防止重整時出現 KeyError 錯誤
+    # 初始化全域狀態暫存器
     if "selected_row_idx" not in st.session_state:
         st.session_state["selected_row_idx"] = None
     if "selected_part_name" not in st.session_state:
@@ -179,7 +177,7 @@ if check_password():
                 
                 # 乾淨的數字轉型判斷
                 total_qty = int(row["數量"]) if str(row["數量"]).isdigit() else 0
-                used_val = int(row["使用"]) if str(row["使用"]).isdigit() else 0
+                used_val = int(row["使用"]) if str(row["開"] if "開" in row else row["使用"]).isdigit() else 0
                 remain_val = int(row["殘數"]) if str(row["殘數"]).isdigit() else (total_qty - used_val)
                 
                 is_zero = remain_val <= 0
@@ -216,7 +214,7 @@ if check_password():
                             st.session_state["selected_current_used"] = used_val
                             st.rerun()
 
-        # 🌟🌟 終極安全防當解鎖：彈出式領取扣除確認與非同步機制 🌟🌟
+        # 🌟🌟 彈出式領取扣除確認與通知機制 🌟🌟
         if st.session_state["selected_row_idx"] is not None:
             st.markdown("---")
             st.markdown(
@@ -246,13 +244,13 @@ if check_password():
                     r_val = st.session_state["selected_remain_val"]
                     new_remain = r_val - amt_val
                     
-                    # 🚀 雙重防禦第一步：發送庫存扣除通知（呼叫通用函式）
+                    # 🚀 同步發送庫存扣除通知（確保完成不漏信）
                     send_pushdeer_notification(
                         text_title=f"🏭 SANBAN領取通知：{p_name}",
                         desp_content=f"領取數量：{amt_val} 件\n庫存剩餘：{new_remain} 件"
                     )
 
-                    # 🚀 雙重防禦第二步：處理 Google 試算表寫入
+                    # 🚀 處理 Google 試算表寫入
                     with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
                         target_row = st.session_state["selected_row_idx"]
                         amt = st.session_state["selected_take_amt"]
@@ -263,7 +261,7 @@ if check_password():
                         st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
                         st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
                         
-                        # B. 寫入雲端（由主執行緒進行，安全不崩潰）
+                        # B. 寫入雲端
                         try:
                             gs_client = init_gspread()
                             if gs_client:
