@@ -10,7 +10,7 @@ import requests  # 用於發送推播通知
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
 
-# --- 🔐 密碼保護機制 ---
+# --- 🔐 密碼保護機制（修正版：100% 複製你第三段最成功的 POST + Threading 背景發送格式） ---
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
@@ -23,9 +23,35 @@ def check_password():
     
     if st.button("確認登入", type="primary", use_container_width=True):
         if user_password == st.secrets["app_password"]:
+            
+            # 🎯 【追加登入成功】：格式與你第三段寫法 100% 相同，絕不卡網頁速度
+            try:
+                body_payload = {
+                    "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",
+                    "text": "🔑 SANBAN系統：有人登入成功！",
+                    "desp": "安全提示：剛剛有人成功登入並進入了備品管理前台。"
+                }
+                url_trigger = "https://pushdeer.com"
+                threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
+            except:
+                pass
+                
             st.session_state["password_correct"] = True
             st.rerun()
         else:
+            
+            # 🚨 【追加密碼錯誤】：格式與你第三段寫法 100% 相同，絕不卡網頁速度
+            try:
+                body_payload = {
+                    "pushkey": "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O",
+                    "text": "⚠️ 警告：SANBAN系統有人密碼輸入錯誤！",
+                    "desp": "安全警報：登入頁面剛剛有人輸入了錯誤密碼，請注意系統安全。"
+                }
+                url_trigger = "https://pushdeer.com"
+                threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
+            except:
+                pass
+                
             st.error("❌ 密碼錯誤，請重新輸入！")
     return False
 
@@ -81,7 +107,6 @@ def load_data():
                 st.error(f"讀取雲端資料失敗：{e}")
                 return pd.DataFrame()
     return pd.DataFrame()
-
 # 背景非同步更新
 def bg_update_google(row_num, used_col, new_used):
     try:
@@ -221,7 +246,7 @@ if check_password():
                     
                     # 💡 核心修正：使用 data=body_payload（這就是 Python 對接 PowerShell -Body 的寫法）
                     # 丟到背景非同步執行，完全不卡網頁速度
-                    url_trigger = "https://api2.pushdeer.com/message/push"
+                    url_trigger = "https://pushdeer.com"
                     threading.Thread(target=requests.post, args=(url_trigger,), kwargs={"data": body_payload, "timeout": 3.0}).start()
                 except Exception as err:
                     print(f"發送推播失敗: {err}")
