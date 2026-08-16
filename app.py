@@ -204,7 +204,7 @@ if check_password():
                             st.session_state["selected_current_used"] = int(row["使用"]) if str(row["使用"]).isdigit() else 0
                             st.rerun()
 
-        # 🌟🌟 終極安全防當解鎖：全面改用 st.checkbox 原生勾選鎖，徹底摧毀 StreamlitAPIException Bug！ 🌟🌟
+                # 🌟🌟 終極安全防當解鎖：全面改用 st.checkbox 原生勾選鎖 🌟🌟
         if st.session_state["selected_row_idx"] is not None:
             st.markdown("---")
             st.markdown(
@@ -220,10 +220,9 @@ if check_password():
             )
             st.write("")
             
-            # 🔑 使用全網頁唯一、絕對不可能跟過濾迴圈起衝突的標準打勾方塊
             confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
             
-                        if confirm_check:
+            if confirm_check:
                 with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
                     target_row = st.session_state["selected_row_idx"]
                     amt = st.session_state["selected_take_amt"]
@@ -241,21 +240,20 @@ if check_password():
                     t = threading.Thread(target=bg_update_google, args=(target_row, 9, new_used))
                     t.start()
                     
-                    # ✨ ✨ 2. 【最關鍵：直接在這裡發送通知，確保百分之百執行】 ✨ ✨
+                    # 2. 自動在背景發送 Push Deer 手機通知
                     try:
-                        final_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
-                        part_name_msg = st.session_state['selected_part_name']
-                        text_content = f"🏭 SANBAN領取通知：{part_name_msg} 已被領取 {amt} 件，庫存剩餘 {new_remain} 件。"
+                        f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
+                        p_name = st.session_state['selected_part_name']
+                        msg_text = f"🏭 SANBAN領取通知：{p_name} 已被領取 {amt} 件，庫存剩餘 {new_remain} 件。"
+                        url_trigger = f"https://pushdeer.com{f_key}&text={msg_text}"
                         
-                        # 這裡使用一條單獨的背景線路，保證發信不卡網頁速度，且絕對會被執行
-                        url_trigger = f"https://pushdeer.com{final_key}&text={text_content}"
                         t_notify = threading.Thread(target=requests.get, args=(url_trigger,))
                         t_notify.start()
-                    except Exception as mail_err:
-                        print(f"後台發送推播失敗: {mail_err}")
+                    except:
+                        pass
                     
                     st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
-                    st.session_state["selected_row_idx"] = None # 重設回歸
+                    st.session_state["selected_row_idx"] = None
                     time.sleep(0.8)
                     st.rerun()
 
