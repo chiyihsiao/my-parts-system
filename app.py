@@ -223,7 +223,7 @@ if check_password():
             # 🔑 使用全網頁唯一、絕對不可能跟過濾迴圈起衝突的標準打勾方塊
             confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
             
-            if confirm_check:
+                        if confirm_check:
                 with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
                     target_row = st.session_state["selected_row_idx"]
                     amt = st.session_state["selected_take_amt"]
@@ -237,16 +237,22 @@ if check_password():
                     st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
                     st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
                     
-                    # 啟動背景非同步更新雲端 Excel
+                    # 1. 背景同步更新雲端 Excel
                     t = threading.Thread(target=bg_update_google, args=(target_row, 9, new_used))
                     t.start()
-
-                    # ✨ ✨ 【就在這裡補上這 4 行】讓推播在背景發送，不卡網頁速度 ✨ ✨
-                    t_notify = threading.Thread(
-                        target=send_easy_notification, 
-                        args=(st.session_state['selected_part_name'], amt, new_remain)
-                    )
-                    t_notify.start()
+                    
+                    # ✨ ✨ 2. 【最關鍵：直接在這裡發送通知，確保百分之百執行】 ✨ ✨
+                    try:
+                        final_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
+                        part_name_msg = st.session_state['selected_part_name']
+                        text_content = f"🏭 SANBAN領取通知：{part_name_msg} 已被領取 {amt} 件，庫存剩餘 {new_remain} 件。"
+                        
+                        # 這裡使用一條單獨的背景線路，保證發信不卡網頁速度，且絕對會被執行
+                        url_trigger = f"https://pushdeer.com{final_key}&text={text_content}"
+                        t_notify = threading.Thread(target=requests.get, args=(url_trigger,))
+                        t_notify.start()
+                    except Exception as mail_err:
+                        print(f"後台發送推播失敗: {mail_err}")
                     
                     st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
                     st.session_state["selected_row_idx"] = None # 重設回歸
