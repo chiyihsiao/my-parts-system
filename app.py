@@ -111,15 +111,18 @@ def load_data():
                 return pd.DataFrame()
     return pd.DataFrame()
 
-# 背景非同步更新
-def bg_update_google(row_num, used_col, new_used):
+# Google 試算表同步更新
+def update_google(row_num, used_col, new_used):
     try:
         gs_client = init_gspread()
-        if gs_client:
-            sheet = gs_client.get_worksheet(0)
-            sheet.update_cell(row_num, used_col, int(new_used))
+        if not gs_client:
+            return False
+        sheet = gs_client.get_worksheet(0)
+        sheet.update_cell(row_num, used_col, int(new_used))
+        return True
     except Exception as e:
-        print(f"背景同步失敗: {e}")
+        print(f"同步 Google 試算表失敗: {e}")
+        return False
 # --- 核心主程式執行區 ---
 if check_password():
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
@@ -173,10 +176,10 @@ if check_password():
             filtered_df = filtered_df[filtered_df["產線"].str.strip() == selected_line]
         if search_keyword:
             filtered_df = filtered_df[
-                filtered_df["部品名稱"].str.lower().str.contains(search_keyword) |
-                filtered_df["部品型號"].str.lower().str.contains(search_keyword) |
-                filtered_df["設備名"].str.lower().str.contains(search_keyword) |
-                filtered_df["廠牌"].str.lower().str.contains(search_keyword)
+                filtered_df["部品名稱"].fillna("").astype(str).str.lower().str.contains(search_keyword, regex=False) |
+                filtered_df["部品型號"].fillna("").astype(str).str.lower().str.contains(search_keyword, regex=False) |
+                filtered_df["設備名"].fillna("").astype(str).str.lower().str.contains(search_keyword, regex=False) |
+                filtered_df["廠牌"].fillna("").astype(str).str.lower().str.contains(search_keyword, regex=False)
             ]
 
         st.caption(f"🔎 找到 {len(filtered_df)} 筆符合的備品")
@@ -214,20 +217,35 @@ if check_password():
                 st.warning("正在執行扣除，請勿重複點擊。")
                 p_name = st.session_state['selected_part_name']
                 amt_val = st.session_state['selected_take_amt']
-                r_val = st.session_state["selected_remain_val"]
-                new_remain = r_val - amt_val
+                target_row = st.session_state["selected_row_idx"]
+
+                # 正式扣除前再次讀取目前記憶體資料，避免確認期間數量已變動。
+                latest_rows = st.session_state["df_data"][st.session_state["df_data"]["行數"] == target_row]
+                if latest_rows.empty:
+                    st.error("找不到原本選取的部品，請重新搜尋並選取。")
+                    st.stop()
+
+                latest_row = latest_rows.iloc[0]
+                latest_remain = int(latest_row["殘數"]) if str(latest_row["殘數"]).isdigit() else 0
+                latest_used = int(latest_row["使用"]) if str(latest_row["使用"]).isdigit() else 0
+                if amt_val > latest_remain:
+                    st.error(f"目前庫存只剩 {latest_remain} 件，已不足以扣除 {amt_val} 件；請取消後重新選取。")
+                    st.stop()
+
+                new_remain = latest_remain - amt_val
+                new_used = latest_used + amt_val
 
                 with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
-                    target_row = st.session_state["selected_row_idx"]
-                    amt = st.session_state["selected_take_amt"]
-                    c_used = st.session_state["selected_current_used"]
-                    new_used = c_used + amt
+                    amt = amt_val
+                    c_used = latest_used
+
+                    # 先確認雲端寫入成功，再更新畫面資料、發送通知與顯示成功訊息。
+                    if not update_google(target_row, 9, new_used):
+                        st.error("❌ Google 雲端庫存同步失敗，本次未完成扣除，請稍後重試。")
+                        st.stop()
 
                     st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
                     st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
-
-                    t = threading.Thread(target=bg_update_google, args=(target_row, 9, new_used), daemon=True)
-                    t.start()
 
                     send_push_notification(
                         f"🏭 SANBAN領取通知：{p_name}",
@@ -267,10 +285,24 @@ if check_password():
                 
                 if not is_zero:
                     col_input, col_btn = st.columns(2)
+                    is_selected = st.session_state["selected_row_idx"] == row_idx
                     with col_input:
-                        take_amt = st.number_input(f"領取數量", min_value=1, max_value=remain_val, value=1, key=f"amt_{row_idx}", label_visibility="collapsed")
+                        if is_selected:
+                            # 已進入確認流程後改為純顯示，完全禁止修改數量。
+                            st.info(f"🔒 領取數量已鎖定：{st.session_state['selected_take_amt']} 件")
+                        else:
+                            take_amt = st.number_input(
+                                "領取數量",
+                                min_value=1,
+                                max_value=remain_val,
+                                value=1,
+                                key=f"amt_{row_idx}",
+                                label_visibility="collapsed",
+                            )
                     with col_btn:
-                        if st.button("確認領取", key=f"btn_{row_idx}", type="primary", use_container_width=True):
+                        if is_selected:
+                            st.button("已選取，請至上方確認", key=f"selected_btn_{row_idx}", disabled=True, use_container_width=True)
+                        elif st.button("確認領取", key=f"btn_{row_idx}", type="primary", use_container_width=True):
                             st.session_state["selected_row_idx"] = row_idx
                             st.session_state["selected_part_name"] = row['部品名稱']
                             st.session_state["selected_take_amt"] = take_amt
