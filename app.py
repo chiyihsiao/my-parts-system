@@ -5,7 +5,7 @@ import threading
 import time
 import json
 import base64
-import requests  # 用於發送推播通知
+import requests  # 用於模擬終端機發送推播通知
 
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
@@ -204,8 +204,8 @@ if check_password():
             
             confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤，打勾正式扣除庫存", key="GLOBAL_FINAL_CHECKBOX_LOCK")
             
-                        if confirm_check:
-                # 🚀 雙重防禦第一步：一打勾，立刻模擬「終端機命令」把通知強行發出去！
+            if confirm_check:
+                # 🚀 雙重防禦第一步：一打勾，立刻模擬終端機 POST 命令強行直連發送推推
                 try:
                     f_key = "PDU43335TPkNbbnLLxdEs91V1sGUqI8JphjeUo46O"
                     p_name = st.session_state['selected_part_name']
@@ -213,16 +213,14 @@ if check_password():
                     r_val = st.session_state["selected_remain_val"]
                     new_remain = r_val - amt_val
                     
-                    # 組合純文字，不用任何網頁轉址
                     msg_text = f"🏭 SANBAN領取通知：{p_name} 已被領取 {amt_val} 件，庫存剩餘 {new_remain} 件。"
                     
-                    # 💡 模擬終端機 cURL 連線的最高技巧：使用 requests.post 並用標準的 Data 封包
+                    # 💡 模擬終端機的最高技巧：使用 requests.post 與標準 Data 封包連線
                     url_trigger = "https://pushdeer.com"
                     payload_data = {
                         "pushkey": f_key,
                         "text": msg_text
                     }
-                    # 這裡直接連線，完全不透過網頁元件，跟終端機一樣乾淨
                     requests.post(url_trigger, data=payload_data, timeout=3.0)
                 except Exception as err:
                     print(f"模擬終端機發送推播失敗: {err}")
@@ -232,6 +230,7 @@ if check_password():
                     target_row = st.session_state["selected_row_idx"]
                     amt = st.session_state["selected_take_amt"]
                     c_used = st.session_state["selected_current_used"]
+                    
                     new_used = c_used + amt
                     
                     # 更新記憶體數據
