@@ -5,10 +5,37 @@ import threading
 import time
 import json
 import base64
+import unicodedata
 import requests  # 用於發送推播通知
 
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
+
+# 搜尋涵蓋所有有辨識價值的欄位，避免只搜尋部品名稱造成漏項。
+SEARCH_COLUMNS = ["位置", "編號", "產線", "設備名", "部品名稱", "部品型號", "廠牌", "數量", "使用", "殘數"]
+SEARCH_SYNONYMS = {
+    "培林": ["培林", "軸承", "bearing"],
+    "軸承": ["軸承", "培林", "bearing"],
+    "bearing": ["bearing", "培林", "軸承"],
+}
+
+
+def normalize_search_text(value):
+    """統一全半形、大小寫與空白，降低試算表資料格式差異造成的漏搜。"""
+    normalized = unicodedata.normalize("NFKC", str(value)).casefold()
+    return normalized.replace(" ", "").replace("　", "")
+
+
+def expand_search_terms(keyword):
+    normalized_keyword = normalize_search_text(keyword)
+    terms = [normalized_keyword]
+    for source, aliases in SEARCH_SYNONYMS.items():
+        source_normalized = normalize_search_text(source)
+        if source_normalized in normalized_keyword:
+            for alias in aliases:
+                terms.append(normalized_keyword.replace(source_normalized, normalize_search_text(alias)))
+    return list(dict.fromkeys(term for term in terms if term))
+
 
 # --- 📱 手機推播通知 ---
 def send_push_notification(title, description):
@@ -167,20 +194,26 @@ if check_password():
             all_lines = ["所有產線"] + [str(x).strip() for x in current_df["產線"].unique() if str(x).strip()]
             selected_line = st.selectbox("⚙️ 選擇產線 (快速篩選)", all_lines)
 
-        search_keyword = st.text_input("🔍 輸入關鍵字 (可搜部品名稱、型號、廠牌或設備...)", "").strip().lower()
+        search_keyword = st.text_input("🔍 輸入關鍵字（任一欄位皆可搜尋，包含編號、數量與庫存）", "")
 
         filtered_df = current_df.copy()
         if selected_loc != "所有位置":
-            filtered_df = filtered_df[filtered_df["位置"].str.strip() == selected_loc]
+            filtered_df = filtered_df[filtered_df["位置"].fillna("").astype(str).str.strip() == selected_loc]
         if selected_line != "所有產線":
-            filtered_df = filtered_df[filtered_df["產線"].str.strip() == selected_line]
-        if search_keyword:
-            filtered_df = filtered_df[
-                filtered_df["部品名稱"].fillna("").astype(str).str.lower().str.contains(search_keyword, regex=False) |
-                filtered_df["部品型號"].fillna("").astype(str).str.lower().str.contains(search_keyword, regex=False) |
-                filtered_df["設備名"].fillna("").astype(str).str.lower().str.contains(search_keyword, regex=False) |
-                filtered_df["廠牌"].fillna("").astype(str).str.lower().str.contains(search_keyword, regex=False)
-            ]
+            filtered_df = filtered_df[filtered_df["產線"].fillna("").astype(str).str.strip() == selected_line]
+        if search_keyword.strip():
+            # 將每列的主要欄位合併成搜尋索引，確保關鍵字出現在任一欄位都能被找到。
+            search_blob = (
+                filtered_df[SEARCH_COLUMNS]
+                .fillna("")
+                .astype(str)
+                .agg(" ".join, axis=1)
+                .map(normalize_search_text)
+            )
+            matched_rows = pd.Series(False, index=filtered_df.index)
+            for term in expand_search_terms(search_keyword):
+                matched_rows |= search_blob.str.contains(term, regex=False, na=False)
+            filtered_df = filtered_df[matched_rows]
 
         st.caption(f"🔎 找到 {len(filtered_df)} 筆符合的備品")
 
