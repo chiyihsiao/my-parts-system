@@ -13,6 +13,7 @@ st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layo
 
 # 搜尋涵蓋所有有辨識價值的欄位，避免只搜尋部品名稱造成漏項。
 SEARCH_COLUMNS = ["位置", "編號", "產線", "設備名", "部品名稱", "部品型號", "廠牌", "數量", "使用", "殘數"]
+PART_SEARCH_COLUMNS = ["編號", "部品名稱", "部品型號", "廠牌", "設備名"]
 SEARCH_SYNONYMS = {
     "培林": ["培林", "軸承", "bearing"],
     "軸承": ["軸承", "培林", "bearing"],
@@ -202,9 +203,17 @@ if check_password():
         if selected_line != "所有產線":
             filtered_df = filtered_df[filtered_df["產線"].fillna("").astype(str).str.strip() == selected_line]
         if search_keyword.strip():
-            # 將每列的主要欄位合併成搜尋索引，確保關鍵字出現在任一欄位都能被找到。
+            normalized_keyword = normalize_search_text(search_keyword)
+            # 部品語意詞（例如培林）只搜尋部品相關欄位，避免數量、編號或庫存欄位造成誤抓。
+            is_part_keyword = any(
+                normalize_search_text(source) in normalized_keyword
+                for source in SEARCH_SYNONYMS
+            )
+            columns_to_search = PART_SEARCH_COLUMNS if is_part_keyword else SEARCH_COLUMNS
+
+            # 一般關鍵字仍會搜尋所有欄位，確保輸入 B 欄編號或庫存數字也能找到資料。
             search_blob = (
-                filtered_df[SEARCH_COLUMNS]
+                filtered_df[columns_to_search]
                 .fillna("")
                 .astype(str)
                 .agg(" ".join, axis=1)
