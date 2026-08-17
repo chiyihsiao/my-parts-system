@@ -11,9 +11,8 @@ import requests  # 用於發送推播通知
 # 設定網頁為手機優化寬度，標題換上新名稱
 st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layout="centered")
 
-# 搜尋涵蓋所有有辨識價值的欄位，避免只搜尋部品名稱造成漏項。
-SEARCH_COLUMNS = ["位置", "編號", "產線", "設備名", "部品名稱", "部品型號", "廠牌", "數量", "使用", "殘數"]
-PART_SEARCH_COLUMNS = ["編號", "部品名稱", "部品型號", "廠牌", "設備名"]
+# 搜尋只涵蓋試算表 A～G 欄，排除 H～J 欄的數量、使用與殘數。
+SEARCH_COLUMNS = ["位置", "編號", "產線", "設備名", "部品名稱", "部品型號", "廠牌"]
 SEARCH_SYNONYMS = {
     "培林": ["培林", "軸承", "bearing"],
     "軸承": ["軸承", "培林", "bearing"],
@@ -195,7 +194,7 @@ if check_password():
             all_lines = ["所有產線"] + [str(x).strip() for x in current_df["產線"].unique() if str(x).strip()]
             selected_line = st.selectbox("⚙️ 選擇產線 (快速篩選)", all_lines)
 
-        search_keyword = st.text_input("🔍 輸入關鍵字（任一欄位皆可搜尋，包含編號、數量與庫存）", "")
+        search_keyword = st.text_input("🔍 輸入關鍵字（搜尋 A～G 欄：位置、編號、產線、設備、部品名稱、型號、廠牌）", "")
 
         filtered_df = current_df.copy()
         if selected_loc != "所有位置":
@@ -203,17 +202,9 @@ if check_password():
         if selected_line != "所有產線":
             filtered_df = filtered_df[filtered_df["產線"].fillna("").astype(str).str.strip() == selected_line]
         if search_keyword.strip():
-            normalized_keyword = normalize_search_text(search_keyword)
-            # 部品語意詞（例如培林）只搜尋部品相關欄位，避免數量、編號或庫存欄位造成誤抓。
-            is_part_keyword = any(
-                normalize_search_text(source) in normalized_keyword
-                for source in SEARCH_SYNONYMS
-            )
-            columns_to_search = PART_SEARCH_COLUMNS if is_part_keyword else SEARCH_COLUMNS
-
-            # 一般關鍵字仍會搜尋所有欄位，確保輸入 B 欄編號或庫存數字也能找到資料。
+            # 所有關鍵字統一只搜尋 A～G 欄；B 欄編號中的 O(培林)-0001 也會被抓到。
             search_blob = (
-                filtered_df[columns_to_search]
+                filtered_df[SEARCH_COLUMNS]
                 .fillna("")
                 .astype(str)
                 .agg(" ".join, axis=1)
