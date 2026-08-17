@@ -13,13 +13,6 @@ st.set_page_config(page_title="SANBAN備品快速查扣系統 (網頁版)", layo
 
 # 搜尋只涵蓋試算表 A～G 欄，排除 H～J 欄的數量、使用與殘數。
 SEARCH_COLUMNS = ["位置", "編號", "產線", "設備名", "部品名稱", "部品型號", "廠牌"]
-SEARCH_SYNONYMS = {
-    "培林": ["培林", "軸承", "bearing"],
-    "軸承": ["軸承", "培林", "bearing"],
-    "bearing": ["bearing", "培林", "軸承"],
-}
-
-
 def normalize_search_text(value):
     """統一全半形、大小寫與空白，降低試算表資料格式差異造成的漏搜。"""
     normalized = unicodedata.normalize("NFKC", str(value)).casefold()
@@ -27,14 +20,9 @@ def normalize_search_text(value):
 
 
 def expand_search_terms(keyword):
+    """只回傳使用者實際輸入的關鍵字，不自動擴充同義詞，避免誤抓。"""
     normalized_keyword = normalize_search_text(keyword)
-    terms = [normalized_keyword]
-    for source, aliases in SEARCH_SYNONYMS.items():
-        source_normalized = normalize_search_text(source)
-        if source_normalized in normalized_keyword:
-            for alias in aliases:
-                terms.append(normalized_keyword.replace(source_normalized, normalize_search_text(alias)))
-    return list(dict.fromkeys(term for term in terms if term))
+    return [normalized_keyword] if normalized_keyword else []
 
 
 # --- 📱 手機推播通知 ---
@@ -202,7 +190,8 @@ if check_password():
         if selected_line != "所有產線":
             filtered_df = filtered_df[filtered_df["產線"].fillna("").astype(str).str.strip() == selected_line]
         if search_keyword.strip():
-            # 所有關鍵字統一只搜尋 A～G 欄；B 欄編號中的 O(培林)-0001 也會被抓到。
+            # 所有關鍵字只搜尋 A～G 欄；B 欄編號中的 O(培林)-0001 也會被抓到。
+            # 使用者輸入「培林」時，不會自動擴充成「軸承」或「bearing」。
             search_blob = (
                 filtered_df[SEARCH_COLUMNS]
                 .fillna("")
