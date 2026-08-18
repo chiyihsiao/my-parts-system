@@ -138,6 +138,64 @@ def update_google(row_num, used_col, new_used):
     except Exception as e:
         print(f"同步 Google 試算表失敗: {e}")
         return False
+@st.dialog("⚠️ 領用扣除確認")
+def deduct_confirmation_dialog():
+    """顯示中央彈窗，只有按下確認扣除才會更新庫存。"""
+    p_name = st.session_state["selected_part_name"]
+    amt_val = st.session_state["selected_take_amt"]
+    target_row = st.session_state["selected_row_idx"]
+
+    st.warning(f"確定要扣除「{p_name}」數量 {amt_val} 件嗎？")
+    st.caption("按下「確認扣除」後才會正式更新 Google 庫存並發送手機通知。")
+
+    confirm_col, cancel_col = st.columns(2)
+    with confirm_col:
+        confirm_clicked = st.button("✅ 確認扣除", type="primary", use_container_width=True)
+    with cancel_col:
+        cancel_clicked = st.button("取消", use_container_width=True)
+
+    if cancel_clicked:
+        st.session_state["selected_row_idx"] = None
+        st.session_state["deduct_confirm_version"] += 1
+        st.rerun()
+
+    if not confirm_clicked:
+        return
+
+    latest_rows = st.session_state["df_data"][st.session_state["df_data"]["行數"] == target_row]
+    if latest_rows.empty:
+        st.error("找不到原本選取的部品，請關閉視窗後重新選取。")
+        return
+
+    latest_row = latest_rows.iloc[0]
+    latest_remain = int(latest_row["殘數"]) if str(latest_row["殘數"]).isdigit() else 0
+    latest_used = int(latest_row["使用"]) if str(latest_row["使用"]).isdigit() else 0
+    if amt_val > latest_remain:
+        st.error(f"目前庫存只剩 {latest_remain} 件，已不足以扣除 {amt_val} 件，請取消後重新選取。")
+        return
+
+    new_remain = latest_remain - amt_val
+    new_used = latest_used + amt_val
+
+    with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
+        if not update_google(target_row, 9, new_used):
+            st.error("❌ Google 雲端庫存同步失敗，本次未完成扣除，請稍後重試。")
+            return
+
+        st.session_state["df_data"].loc[st.session_state["df_data"]["行數"] == target_row, "使用"] = str(new_used)
+        st.session_state["df_data"].loc[st.session_state["df_data"]["行數"] == target_row, "殘數"] = str(new_remain)
+
+        send_push_notification(
+            f"🏭 SANBAN領取通知：{p_name}",
+            f"領取數量：{amt_val} 件\\n庫存剩餘：{new_remain} 件",
+        )
+
+    st.session_state["selected_row_idx"] = None
+    st.session_state["deduct_confirm_version"] += 1
+    st.toast(f"✅ 成功扣除備品數量 {amt_val} 件！")
+    st.rerun()
+
+
 # --- 核心主程式執行區 ---
 if check_password():
     st.markdown("<h2 style='text-align: center; color: #28a745; font-weight: bold;'>🏭 SANBAN備品快速查扣系統 (網頁版)</h2>", unsafe_allow_html=True)
@@ -206,78 +264,20 @@ if check_password():
 
         st.caption(f"🔎 找到 {len(filtered_df)} 筆符合的備品")
 
-        # 將確認區塊放在結果清單之前，避免資料很多時必須滑到頁面最下方。
+        # 已選取項目時只顯示摘要，正式確認改由中央模態視窗處理。
         if st.session_state["selected_row_idx"] is not None:
             st.markdown("---")
-            st.markdown(
-                f"""
-                <div style="background-color:#fff3cd; padding:15px; border-radius:10px; border-left: 5px solid #ffc107;">
-                    <h5 style="margin:0; color:#856404; font-weight:bold;">⚠️ 【領取扣除確認】</h5>
-                    <p style="margin:5px 0; color:#856404;">
-                        確定要從庫存扣除 <b>{st.session_state['selected_part_name']}</b> 數量 <b>{st.session_state['selected_take_amt']}</b> 件嗎？
-                    </p>
-                </div>
-                """,
-                unsafe_allow_html=True
+            st.info(
+                f"已選取：{st.session_state['selected_part_name']}，數量 {st.session_state['selected_take_amt']} 件。"
             )
-            confirm_key = f"GLOBAL_FINAL_CHECKBOX_LOCK_{st.session_state['deduct_confirm_version']}"
-            confirm_check = st.checkbox("💡 我已確認以上部品名稱與數量無誤", key=confirm_key)
-            confirm_col, cancel_col = st.columns(2)
-            with confirm_col:
-                final_confirm_clicked = st.button("✅ 確認扣除庫存", key="final_deduct_btn", type="primary", use_container_width=True)
-            with cancel_col:
-                cancel_clicked = st.button("↩️ 取消此次領用", key="cancel_deduct_btn", use_container_width=True)
-
-            if cancel_clicked:
-                st.session_state["selected_row_idx"] = None
-                st.session_state["deduct_confirm_version"] += 1
-                st.rerun()
-
-            if final_confirm_clicked and not confirm_check:
-                st.warning("請先勾選確認部品名稱與數量，才能執行扣除。")
-            elif final_confirm_clicked and confirm_check:
-                st.warning("正在執行扣除，請勿重複點擊。")
-                p_name = st.session_state['selected_part_name']
-                amt_val = st.session_state['selected_take_amt']
-                target_row = st.session_state["selected_row_idx"]
-
-                # 正式扣除前再次讀取目前記憶體資料，避免確認期間數量已變動。
-                latest_rows = st.session_state["df_data"][st.session_state["df_data"]["行數"] == target_row]
-                if latest_rows.empty:
-                    st.error("找不到原本選取的部品，請重新搜尋並選取。")
-                    st.stop()
-
-                latest_row = latest_rows.iloc[0]
-                latest_remain = int(latest_row["殘數"]) if str(latest_row["殘數"]).isdigit() else 0
-                latest_used = int(latest_row["使用"]) if str(latest_row["使用"]).isdigit() else 0
-                if amt_val > latest_remain:
-                    st.error(f"目前庫存只剩 {latest_remain} 件，已不足以扣除 {amt_val} 件；請取消後重新選取。")
-                    st.stop()
-
-                new_remain = latest_remain - amt_val
-                new_used = latest_used + amt_val
-
-                with st.spinner("💾 正在同步寫入 Google 雲端庫存..."):
-                    amt = amt_val
-                    c_used = latest_used
-
-                    # 先確認雲端寫入成功，再更新畫面資料、發送通知與顯示成功訊息。
-                    if not update_google(target_row, 9, new_used):
-                        st.error("❌ Google 雲端庫存同步失敗，本次未完成扣除，請稍後重試。")
-                        st.stop()
-
-                    st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '使用'] = str(new_used)
-                    st.session_state["df_data"].loc[st.session_state["df_data"]['行數'] == target_row, '殘數'] = str(new_remain)
-
-                    send_push_notification(
-                        f"🏭 SANBAN領取通知：{p_name}",
-                        f"領取數量：{amt_val} 件\\n庫存剩餘：{new_remain} 件",
-                    )
-
-                    st.toast(f"✅ 成功扣除備品數量 {amt} 件！")
+            open_dialog_col, cancel_selection_col = st.columns(2)
+            with open_dialog_col:
+                if st.button("⚠️ 開啟扣除確認視窗", type="primary", use_container_width=True):
+                    deduct_confirmation_dialog()
+            with cancel_selection_col:
+                if st.button("↩️ 取消此次領用", use_container_width=True):
                     st.session_state["selected_row_idx"] = None
                     st.session_state["deduct_confirm_version"] += 1
-                    time.sleep(0.8)
                     st.rerun()
 
         if filtered_df.empty:
