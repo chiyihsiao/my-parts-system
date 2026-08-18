@@ -270,12 +270,7 @@ if check_password():
             st.info(
                 f"已選取：{st.session_state['selected_part_name']}，數量 {st.session_state['selected_take_amt']} 件。"
             )
-            open_dialog_col, cancel_selection_col = st.columns(2)
-            with open_dialog_col:
-                if st.button("⚠️ 開啟扣除確認視窗", type="primary", use_container_width=True):
-                    deduct_confirmation_dialog()
-            with cancel_selection_col:
-                if st.button("↩️ 取消此次領用", use_container_width=True):
+            if st.button("↩️ 取消此次領用", use_container_width=True):
                     st.session_state["selected_row_idx"] = None
                     st.session_state["deduct_confirm_version"] += 1
                     st.rerun()
@@ -330,9 +325,9 @@ if check_password():
                             st.session_state["selected_take_amt"] = take_amt
                             st.session_state["selected_remain_val"] = remain_val
                             st.session_state["selected_current_used"] = int(row["使用"]) if str(row["使用"]).isdigit() else 0
-                            # 使用新的 widget key 取代直接修改 checkbox 綁定狀態，避免 Streamlit 例外。
+                            # 設定領用資料後立即開啟中央模態確認視窗，不再需要額外按鈕。
                             st.session_state["deduct_confirm_version"] += 1
-                            st.rerun()
+                            deduct_confirmation_dialog()
 
 
         st.markdown("---")
