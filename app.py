@@ -146,7 +146,7 @@ def deduct_confirmation_dialog():
     target_row = st.session_state["selected_row_idx"]
 
     st.warning(f"確定要扣除「{p_name}」數量 {amt_val} 件嗎？")
-    st.caption("按下「確認扣除」後才會正式更新 Google 庫存並發送手機通知。")
+    st.caption("按下「確認扣除」後才會正式更新庫存。")
 
     confirm_col, cancel_col = st.columns(2)
     with confirm_col:
@@ -232,6 +232,9 @@ if check_password():
 
         current_df = st.session_state["df_data"]
 
+        # 將快速搜尋放在頁面最上方，方便進入系統後立即查找。
+        search_keyword = st.text_input("🔍 輸入關鍵字", "")
+
         col_filter1, col_filter2 = st.columns(2)
         with col_filter1:
             all_locs = ["所有位置"] + [str(x).strip() for x in current_df["位置"].unique() if str(x).strip()]
@@ -239,8 +242,6 @@ if check_password():
         with col_filter2:
             all_lines = ["所有產線"] + [str(x).strip() for x in current_df["產線"].unique() if str(x).strip()]
             selected_line = st.selectbox("⚙️ 選擇產線 (快速篩選)", all_lines)
-
-        search_keyword = st.text_input("🔍 輸入關鍵字（搜尋 A～G 欄：位置、編號、產線、設備、部品名稱、型號、廠牌）", "")
 
         filtered_df = current_df.copy()
         if selected_loc != "所有位置":
